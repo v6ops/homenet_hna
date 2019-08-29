@@ -1,0 +1,6 @@
+This is experimental code to implement RFC8484 as a proxy between a vanilla resolver and a vanilla DNS server.
+
+All code provided under GNU General Public License v3
+A copy of the licence can be found at https://www.gnu.org/licenses/gpl-3.0.html
+
+Author: Ray Hunter v6ops@globis.net

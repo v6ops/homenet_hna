@@ -1,0 +1,17 @@
+
+
+     CUnit - A unit testing framework for C - Version 2.1-3
+     http://cunit.sourceforge.net/
+
+
+Suite: HNA_TestSuite
+  Test: ldns_helpers ...subzone.homenetdns.com.	600	IN	SOA	dm.homenetdns.com. hostmaster.globis.net. 1 3600 1800 604800 600
+passed
+
+Run Summary:    Type  Total    Ran Passed Failed Inactive
+              suites      1      1    n/a      0        0
+               tests      1      1      1      0        0
+             asserts      1      1      1      0      n/a
+
+Elapsed time =    0.000 seconds
+PASS main (exit status: 0)

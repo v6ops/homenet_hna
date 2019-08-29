@@ -1,0 +1,36 @@
+$TTL 600; TTL default
+$ORIGIN homenetdns.com.
+@	IN	SOA ns1.homenetinfra.com. hostmaster.globis.net. (
+		2019061201 ;Serial
+		3600 ;Refresh
+		1800 ;Retry
+		604800 ;Expire
+		600 ;NX Minimum TTL
+		)
+	IN	NS ns1.homenetinfra.com.
+	IN	NS ns2.homenetinfra.com.
+
+;A – Record HostName To Ip Address
+www	IN	A 92.111.140.214
+dm	IN	A 92.111.140.214
+;AAAA – Record HostName To Ip Address
+www	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16
+dm	IN	AAAA 2001:470:1f15:62e:21c::2
+
+homenetdns.com CAA 128 issue "letsencrypt.org"
+;
+; https://www.huque.com/bin/gen_tlsa
+; 2 - DANE-TA: Trust Anchor Assertion
+; 0 - Cert: Use full certificate
+; 1 - SHA-256: SHA-256 hash
+; use the let's encrypt root certificate, not the end certificate
+; from /etc/letsencrypt/live/www.homenetinfra/chain.pem
+; Serial : a0141420000015385736a0b85eca708
+;Issuer : O=Digital Signature Trust Co., CN=DST Root CA X3
+;Subject: C=US, O=Let's Encrypt, CN=Let's Encrypt Authority X3
+;Certificate Inception: 2016-03-17 16:40:46+00:00 UTC
+;Certificate Expiration: 2021-03-17 16:40:46+00:00 UTC
+;_443._tcp.www.homenetinfra.com. IN TLSA 3 1 1 60b87575447dcba2a36b7d11ac09fb24a9db406fee12d2cc90180517616e8a18
+_443._tcp.www.homenetdns.com. IN TLSA 2 0 1 25847d668eb4f04fdd40b12b6b0740c567da7d024308eb6c2c96fe41d9de218d
+
+

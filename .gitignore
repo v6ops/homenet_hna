@@ -1,0 +1,38 @@
+# intermediate compliation results
+*.o
+*.lo
+*.la
+*.Po
+*.pc
+*.gch
+# automake
+autom4te.cache/**
+/aclocal.m4
+/m4/**
+/ar-lib
+/compile
+/config.guess
+/config.status
+/config.sub
+/depcomp
+/install-sh
+/libtool
+/ltmain.sh
+/missing
+/test-driver
+/autogen.sh
+/autoscan.log
+**/Makefile
+**/Makefile.in
+**/.deps/
+**/.libs/
+/stamp-h1
+/config.h.in
+/config.h
+/config.log
+/configure.scan
+# tests
+/tests/test-suite.log
+
+# json
+/thirdparty/nlohmann_json
