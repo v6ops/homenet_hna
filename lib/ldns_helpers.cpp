@@ -37,57 +37,67 @@ ldns_zone* ldns_helpers_load_template (char *filename) {
   fp = fopen(filename, "r");
   if (!fp) {
     fprintf(stderr, "Unable to open %s: %s\n", filename, strerror(errno));
-    exit(EXIT_FAILURE);
+    return NULL;
   }
 
   s = ldns_zone_new_frm_fp_l(&z, fp, NULL, 0, LDNS_RR_CLASS_IN, &line_nr);
 
   if (s != LDNS_STATUS_OK) {
-	  fprintf(stderr, "Error %s\n",ldns_get_errorstr_by_id(s));
+    fprintf(stderr, "Error %s\n",ldns_get_errorstr_by_id(s));
+    return NULL;
   }
+  fclose(fp);
 
   return z;
 }
 
 ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the template for a particular sub zone
-  /* this is static hard coded for now, but obviously the RR's could be zone specific */
+  /* this is static hard coded for now, but obviously the RR's could be zone specific e.g. to allow load balancing */
   ldns_zone *z; 	
   ldns_rr   *rr;
+  ldns_rdf *prev=NULL;
   ldns_buffer *tmp_buf;
   ldns_status status;
+  char *ptr;
+  int rr_c=0;
 
   char ns1[]="ns1.homenetinfra.com.";
   char ns2[]="ns2.homenetinfra.com.";
 
-  tmp_buf=ldns_buffer_new(256);
-
   z=ldns_zone_new (); // create a new zone
   ldns_zone_set_soa(z,ldns_helpers_soa_rr_new(zone_name)); //add the soa
 
-  char buf[ldns_helpers_max_buffer_size];
-  ldns_rdf *prev=NULL;
-
-  snprintf(buf, sizeof(buf), "%s IN NS %s",
-      zone_name, ns1);
-  status = ldns_rr_new_frm_str(&rr, buf, 3600, NULL, &prev);
-  if(status != LDNS_STATUS_OK) {
-    printf("Error adding RR to zone: %s\n",
-        ldns_get_errorstr_by_id(status));
-    }
-  ldns_zone_push_rr(z,rr); 
-
-  snprintf(buf, sizeof(buf), "%s IN NS %s",
-      zone_name, ns2);
-  status = ldns_rr_new_frm_str(&rr, buf, 3600, NULL, &prev);
-  if(status != LDNS_STATUS_OK) {
-    printf("Error adding RR to zone: %s\n",
-        ldns_get_errorstr_by_id(status));
-    }
-  ldns_zone_push_rr(z,rr); 
-
+  // Add 2 NS RR
+  tmp_buf=ldns_buffer_new(ldns_helpers_max_buffer_size);
+  ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns1);
+  ptr=ldns_buffer_export2str(tmp_buf);
+  status = ldns_rr_new_frm_str(&rr, ptr, 3600, NULL, &prev);
+  LDNS_FREE(ptr);
   ldns_buffer_free(tmp_buf);
+  if(status != LDNS_STATUS_OK) {
+    printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
+  } else {
+    if (ldns_zone_push_rr(z,rr)==true) rr_c++;
+  }
 
-  return z;
+  tmp_buf=ldns_buffer_new(ldns_helpers_max_buffer_size);
+  ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns2);
+  ptr=ldns_buffer_export2str(tmp_buf);
+  status = ldns_rr_new_frm_str(&rr, ptr, 3600, NULL, &prev);
+  LDNS_FREE(ptr);
+  ldns_buffer_free(tmp_buf);
+  if(status != LDNS_STATUS_OK) {
+    printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
+  } else {
+    if (ldns_zone_push_rr(z,rr)==true) rr_c++;
+  }
+
+  if (rr_c>0) {
+    return z;
+  } else {
+    ldns_zone_free(z);
+    return NULL;
+  }
 
 }
 

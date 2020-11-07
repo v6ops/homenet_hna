@@ -113,7 +113,9 @@ int main(int argc, char **argv)
 
   /* Add openssl to the BIO chain */
   sbio = BIO_push(bbio, sbio);
-  char host_port[40]="[2001:470:1f15:62e:21c::2]:4433";
+  //char host_port[40]="[2001:470:1f15:62e:21c::2]:4433";
+  //char host_port[40]="[fe80::2d05:39:3294:453b]:4433";
+  char host_port[40]="192.168.1.18:4433";
 
   // Create the listening socket
   acpt=BIO_new_accept(host_port);

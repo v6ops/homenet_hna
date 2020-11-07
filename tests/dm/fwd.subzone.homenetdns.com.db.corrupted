@@ -1,0 +1,20 @@
+$TTL 600; TTL default
+; template zone file for sub zones
+$ORIGIN subzone.homenetdns.com.
+@	IN	SOA dm.homenetdns.com. hostmaster.globis.net. (
+		1 ;Serial
+		3600 ;Refresh
+		1800 ;Retry
+		604800 ;Expire
+		600 ;NX Minimum TTL
+	IN	NS ns1.homenetinfra.com.
+	IN	NS ns2.homenetinfra.com.
+
+;A – Record HostName To Ip Address
+;dm	IN	A 92.111.140.214
+;ns1.homenetinfra.com.	IN	A 92.111.140.214
+;ns2.homenetinfra.com.	IN	A 92.111.140.213
+;AAAA – Record HostName To Ip Address
+;dm	IN	AAAA 2001:470:1f15:62e:21c::2
+;ns1.homenetinfra.com.	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16
+;ns2.homenetinfra.com.	IN	AAAA 2001:470:1f15:62e:ba27:ebff:fe17:9df1

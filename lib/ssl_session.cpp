@@ -123,7 +123,8 @@ void configure_client_context(SSL_CTX *ctx)
   SSL_CTX_set_options(ctx, flags);
 
   long res=1;
-  res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/fullchain.pem", NULL);
+  //res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/fullchain.pem", NULL);
+  res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/cabundle.pem", NULL);
 
   if(!(1 == res))
     {

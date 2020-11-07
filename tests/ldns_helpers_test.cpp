@@ -32,12 +32,17 @@ void test_ldns_helpers(void) {
 
 ldns_zone* z;
 char filename[50]="./dm/fwd.subzone.homenetdns.com.db";
+char filename_non_existant[50]="./dm/fwd.subzone.homenetdns.com.db.missing";
+char filename_corrupted[50]="./dm/fwd.subzone.homenetdns.com.db.corrupted";
 char zone_name[50]="my_subzone.homenetdns.com";
 
 CU_ASSERT(0 == 0);
 
 const ldns_output_format *fmt = NULL;
 // fmt = ldns_output_format_bubblebabble;
+CU_ASSERT(ldns_helpers_load_template(filename_non_existant) == NULL);
+CU_ASSERT(ldns_helpers_load_template(filename_corrupted) == NULL);
+CU_ASSERT(ldns_helpers_load_template(filename) != NULL);
 
 z=ldns_helpers_load_template(filename);
 ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
@@ -45,7 +50,12 @@ ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
 //ldns_helpers_fill_template(z,zone_name);
 //ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
 //ldns_rr_list_print_fmt(stdout, fmt, ldns_zone_rrs(z));
-
-
+//
+char valid_zone[10]="sub";
+CU_ASSERT((z=ldns_helpers_zone_template_new(valid_zone))!=NULL);
+if (z) ldns_zone_print(stdout,z);
+char invalid_zone[10]="s u b";
+CU_ASSERT((z=ldns_helpers_zone_template_new(invalid_zone))==NULL);
+if (z) ldns_zone_print(stdout,z);
 
 }
