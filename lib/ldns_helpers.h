@@ -32,7 +32,8 @@ const int ldns_helpers_max_buffer_size     = 2048; // 2048 packet buffer
 
 const int ldns_helpers_verbose =1;
 
-#include "config.h"
+//#include "config.h"
+#include "../config.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -77,5 +78,9 @@ void ldns_helpers_add_trailing_dot(char *zone_name);
 void ldns_helpers_parent_domain(const char *domain, char *parent);
 
 ldns_rr_list * get_rrset(const ldns_zone *zone, const ldns_rdf *owner_name, const ldns_rr_type qtype, const ldns_rr_class qclass);
+
+void ldns_helpers_pkt_free(ldns_pkt *pkt);
+void ldns_helpers_rdf_free(ldns_rdf *rdf);
+void ldns_helpers_rr_list_free(ldns_rr_list *rr_list);
 
 #endif

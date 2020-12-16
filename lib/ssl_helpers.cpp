@@ -33,16 +33,19 @@ ldns_pkt * ssl_helpers_bio2pkt(BIO *bio) {
   unsigned char len2;
   int response_length=0;
   unsigned char tmpbuf[LDNS_MAX_PACKETLEN];
-  //char buf[80];
+  char buf[80];
+
+  BIO *out;
+  out = BIO_new_fp(stdout, BIO_NOCLOSE);
 
   BIO_read(bio, &len1, 1);
-  //BIO_puts(out,"got len1\n");
+  BIO_puts(out,"got len1\n");
   BIO_read(bio, &len2, 1);
-  //BIO_puts(out,"got len2\n");
+  BIO_puts(out,"got len2\n");
   response_length= len1 <<8;
   response_length+= len2;
-  //sprintf(buf, "Reading AXFR response length %u\n",response_length);
-  //BIO_puts(out, buf);
+  sprintf(buf, "Reading packet length %u\n",response_length);
+  BIO_puts(out, buf);
   BIO_read(bio, tmpbuf, response_length);
 
   pkt=ldns_pkt_new();
@@ -87,15 +90,16 @@ int ssl_helpers_pkt2bio(ldns_pkt *pkt,BIO *bio) {
 }
 
 
-int ssl_helpers_check_cert_cn(BIO *bio, const char *cn) {
-  SSL *ssl;
+//int ssl_helpers_check_cert_cn(BIO *bio, const char *cn) {
+int ssl_helpers_check_cert_cn(SSL *ssl, const char *cn) {
+//  SSL *ssl;
   X509 *cert;
   long v;
   char expected_cn[ldns_helpers_max_buffer_size]="\0";
   strcpy(expected_cn,"/CN=");
   strcat(expected_cn,cn);
 
-  BIO_get_ssl(bio, &ssl);
+//  BIO_get_ssl(bio, &ssl);
 
   if (ssl) {
     v=SSL_get_verify_result(ssl);

@@ -64,7 +64,7 @@ int alpn_select_proto_cb(
 void init_openssl(void)
 {
     SSL_load_error_strings();
-    OpenSSL_add_ssl_algorithms();
+    OpenSSL_add_ssl_algorithms(); // synonym for SSL_library_init()
 }
 
 void cleanup_openssl(void)
@@ -260,7 +260,11 @@ void configure_server_context(SSL_CTX *ctx)
     //SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, ssl_session_verify_callback);
     //SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
     //SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT|SSL_VERIFY_CLIENT_ONCE, NULL);
+    //SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    // debugging no blocking on no client cert
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_CLIENT_ONCE, NULL);
+    // below line drops the session if no client cert is sent
+    //SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT|SSL_VERIFY_CLIENT_ONCE, NULL);
 
     // Other CA locations (DM root CA cert)
     if ( SSL_CTX_load_verify_locations(ctx, "../tests/dm/homenetdnsCA.pem",NULL) <=0) {

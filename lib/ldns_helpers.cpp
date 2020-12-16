@@ -27,6 +27,30 @@
 
 bool print_soa = true;
 
+void ldns_helpers_pkt_free(ldns_pkt *pkt)
+{
+  if (pkt!=NULL) {
+    ldns_pkt_free(pkt);
+    pkt=NULL;
+  }
+}
+
+void ldns_helpers_rdf_free(ldns_rdf *rdf)
+{
+  if (rdf!=NULL) {
+    ldns_rdf_free(rdf);
+    rdf=NULL;
+  }
+}
+
+void ldns_helpers_rr_list_free(ldns_rr_list *rr_list)
+{
+  if (rr_list!=NULL) {
+    ldns_rr_list_free(rr_list);
+    rr_list=NULL;
+  }
+}
+
 ldns_zone* ldns_helpers_load_template (char *filename) {
 
   FILE *fp;

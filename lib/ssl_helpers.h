@@ -45,7 +45,8 @@
 int ssl_helpers_pkt2bio(ldns_pkt *pkt,BIO *bio);
 ldns_pkt * ssl_helpers_bio2pkt(BIO *bio);
 
-int ssl_helpers_check_cert_cn(BIO *bio, const char * cn);
+//int ssl_helpers_check_cert_cn(BIO *bio, const char * cn);
+int ssl_helpers_check_cert_cn(SSL *ssl, const char *cn);
 
 
 #endif
