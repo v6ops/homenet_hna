@@ -40,7 +40,11 @@ AC_PROG_LIBTOOL(libtool)
 AC_CHECK_LIB([ssl], [main], [], [echo "openssl ssl library not found.  Please install openssl ssl library before proceeding"; exit -1])
 AC_CHECK_LIB([crypto], [main], [], [echo "openssl crypto library not found.  Please install openssl crypto library before proceeding"; exit -1])
 AC_CHECK_LIB([ldns], [main], [], [echo "ldns DNS library not found.  Please install NLnet Labs ldns library before proceeding"; exit -1])
+AC_CHECK_LIB([event], [main], [], [echo "libevent library not found.  Please install libevent library before proceeding"; exit -1])
+AC_CHECK_HEADERS(event2/event.h event2/dns.h event2/bufferevent_ssl.h)
+AC_CHECK_LIB([event_openssl], [main], [], [echo "event_openssl library not found.  Please install event_openssl library before proceeding"; exit -1])
 # this is bad but the check header doesn't seem to work with .hpp
+AC_CHECK_LIB([pthread], [main], [], [echo "libpthread library not found.  Please install libpthread library before proceeding"; exit -1])
 AC_CHECK_FILE(
     /usr/local/include/nlohmann/json.hpp,
     [],
