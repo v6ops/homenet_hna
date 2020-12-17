@@ -35,6 +35,14 @@ void ldns_helpers_pkt_free(ldns_pkt *pkt)
   }
 }
 
+void ldns_helpers_zone_free(ldns_zone *z)
+{
+  if (z!=NULL) {
+    ldns_zone_free(z);
+    z=NULL;
+  }
+}
+
 void ldns_helpers_rdf_free(ldns_rdf *rdf)
 {
   if (rdf!=NULL) {
@@ -51,7 +59,7 @@ void ldns_helpers_rr_list_free(ldns_rr_list *rr_list)
   }
 }
 
-ldns_zone* ldns_helpers_load_template (char *filename) {
+ldns_zone * ldns_helpers_load_template (char *filename) {
 
   FILE *fp;
   int line_nr = 0;
@@ -73,6 +81,36 @@ ldns_zone* ldns_helpers_load_template (char *filename) {
   fclose(fp);
 
   return z;
+
+}
+/* populate a zone from file */
+ldns_zone* ldns_helpers_zone_read(const char * zone_file)
+{
+  ldns_status status;
+  ldns_zone *zone=NULL;
+  int line_nr=0;
+  FILE *zone_fp;
+  ldns_rdf *origin = NULL;
+  ldns_str2rdf_dname(&origin, "homenetdns.com");
+
+  printf("Reading zone file %s\n", zone_file);
+  zone_fp = fopen(zone_file, "r");
+  if (!zone_fp) {
+    fprintf(stderr, "Unable to open %s: %s\n", zone_file, strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  status = ldns_zone_new_frm_fp_l(&zone, zone_fp, origin, 0, LDNS_RR_CLASS_IN, &line_nr);
+
+  if (status != LDNS_STATUS_OK) {
+    fprintf(stderr, "Error %s\n",ldns_get_errorstr_by_id(status));
+    return NULL;
+  } else {
+    printf("Read %u resource records in zone file\n", (unsigned int) ldns_zone_rr_count(zone));
+  }
+  fclose(zone_fp);
+
+  return zone; /* remember to free later */
 }
 
 ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the template for a particular sub zone
@@ -119,7 +157,7 @@ ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the templ
   if (rr_c>0) {
     return z;
   } else {
-    ldns_zone_free(z);
+    ldns_helpers_zone_free(z);
     return NULL;
   }
 
@@ -448,7 +486,7 @@ ldns_pkt * ldns_helpers_axfr_response_new(ldns_pkt *query_pkt) {
   ldns_pkt_push_rr_list(axfr_response_pkt, LDNS_SECTION_AUTHORITY, response_ns);
   ldns_pkt_push_rr_list(axfr_response_pkt, LDNS_SECTION_ADDITIONAL, response_ad);
 
-  ldns_zone_free(z);
+  ldns_helpers_zone_free(z);
 
   return axfr_response_pkt;
 }

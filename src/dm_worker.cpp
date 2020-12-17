@@ -91,37 +91,14 @@ int dm_worker(dm_query_t * dm_query)
 
   ldns_rdf *origin = NULL;
   ldns_str2rdf_dname(&origin, "homenetdns.com");
+  char buf[80];
 
   /* zone */
   const char *zone_file="../tests/testdata/fwd.homenetdns.com.db";
   ldns_zone *zone;
-  int line_nr;
-  FILE *zone_fp;
-
-  //ldns_rdf *origin = NULL;
-  char buf[80];
-
-  printf("Reading zone file %s\n", zone_file);
-  zone_fp = fopen(zone_file, "r");
-  if (!zone_fp) {
-    fprintf(stderr, "Unable to open %s: %s\n", zone_file, strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  
-  line_nr = 0;
-  status = ldns_zone_new_frm_fp_l(&zone, zone_fp, origin, 0, LDNS_RR_CLASS_IN, &line_nr);
-
-  if (status != LDNS_STATUS_OK) {
-    printf("Zone reader failed, aborting\n");
-    exit(EXIT_FAILURE);
-  } else {
-    printf("Read %u resource records in zone file\n", (unsigned int) ldns_zone_rr_count(zone));
-  }
-  fclose(zone_fp);
-
+  zone=ldns_helpers_zone_read(zone_file);
 
   /* Handle query */
-   //if ( ( query_pkt=ssl_helpers_bio2pkt(sbio) )==NULL ) {
    status=ldns_wire2pkt(&query_pkt,(const uint8_t*)dm_query->query,dm_query->len);
    if (status!=LDNS_STATUS_OK ) {
       printf( "Invalid incoming packet.\n");
@@ -141,6 +118,7 @@ int dm_worker(dm_query_t * dm_query)
 
         owner=ldns_rr_owner(query_answer_rr);
         ldns_dname_2str(buf,owner);
+        printf( buf);
       }
       ldns_helpers_pkt_free(query_pkt);  
     } // end NOTIFY
@@ -244,7 +222,7 @@ int dm_worker(dm_query_t * dm_query)
 
       ldns_helpers_pkt_free(query_pkt);  
     } // end UPDATE
-    else { // handle other queries
+    else if(ldns_pkt_get_opcode(query_pkt)==LDNS_PACKET_QUERY) {
       sprintf(buf, "incoming query\n");
       printf( buf);
 
@@ -271,11 +249,12 @@ int dm_worker(dm_query_t * dm_query)
         response_qr = ldns_rr_list_new();
         ldns_rr_list_push_rr(response_qr, ldns_rr_clone(query_question_rr));
 
+        /* get matching RR set from the zone */
         response_an = get_rrset(zone, ldns_rr_owner(query_question_rr), ldns_rr_get_type(query_question_rr), ldns_rr_get_class(query_question_rr));
-        response_pkt = ldns_pkt_new();
         response_ns = ldns_rr_list_new();
         response_ad = ldns_rr_list_new();
-    
+
+        response_pkt = ldns_pkt_new();
         ldns_pkt_set_qr(response_pkt, 1);
         ldns_pkt_set_aa(response_pkt, 1);
         ldns_pkt_set_id(response_pkt, ldns_pkt_id(query_pkt));
@@ -293,13 +272,18 @@ int dm_worker(dm_query_t * dm_query)
     
         ldns_helpers_pkt_free(query_pkt);
         ldns_helpers_pkt_free(response_pkt);
-        ldns_helpers_rr_list_free(response_qr);
-        ldns_helpers_rr_list_free(response_an);
-        ldns_helpers_rr_list_free(response_ns);
-        ldns_helpers_rr_list_free(response_ad);
+        // following are freed by freeing the packet
+        // ldns_helpers_rr_list_free(response_qr);
+        // ldns_helpers_rr_list_free(response_an);
+        // ldns_helpers_rr_list_free(response_ns);
+        // ldns_helpers_rr_list_free(response_ad);
         printf( "Done other query\n");
 
       }
+    } // end QUERY
+    else { // handle other queries
+      sprintf(buf, "incoming not implemented\n");
+      printf( buf);
     } // other queries
    } // got query pkt
   dm_query_free (dm_query); // free up the memory of the inbound query
