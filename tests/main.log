@@ -8,7 +8,7 @@ Suite: HNA_TestSuite
   Test: ldns_helpers ...Unable to open ./dm/fwd.subzone.homenetdns.com.db.missing: No such file or directory
 Error Syntax error, superfluous text present
 subzone.homenetdns.com.	600	IN	SOA	dm.homenetdns.com. hostmaster.globis.net. 1 3600 1800 604800 600
-sub.	3600	IN	SOA	. . 1567169592 86400 7200 3600000 600
+sub.	3600	IN	SOA	. . 1686138159 86400 7200 3600000 600
 sub.	3600	IN	NS	ns1.homenetinfra.com.
 sub.	3600	IN	NS	ns2.homenetinfra.com.
 Error adding SOA version: Syntax error, could not parse the RR's rdata
