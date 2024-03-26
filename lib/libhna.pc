@@ -1,0 +1,11 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libhna
+Description: Homenet Naming Authority
+URL: https://github.com/v6ops/hna
+Version: 0.1.3
+Libs: -L${libdir} -lhna
+Cflags: -I${includedir}
