@@ -1,0 +1,31 @@
+Install the ldns lib
+https://nlnetlabs.nl/projects/ldns/download/
+
+mkdir ldns
+cd ldns
+curl -o ldns.tar.gz https://nlnetlabs.nl/downloads/ldns/ldns-1.8.3.tar.gz
+gzip -d ldns.tar.gz 
+tar xvf ./ldns.tar 
+autoreconf
+libtool
+./configure 
+sudo make install
+
+Install json lib
+git clone https://github.com/nlohmann/json
+cd json
+sudo mkdir -p /usr/local/include/nlohmann
+sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
+
+Build the GNU build system
+cd ~/homenet_hna
+libtoolize
+aclocal
+autoconf
+autoheader
+automake -a
+autoreconf
+
+compile the code using configure and Make
+./configure
+make
