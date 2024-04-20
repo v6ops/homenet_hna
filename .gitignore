@@ -3,7 +3,6 @@
 *.lo
 *.la
 *.Po
-*.pc
 *.gch
 # automake
 autom4te.cache/**
@@ -36,3 +35,9 @@ autom4te.cache/**
 
 # json
 /thirdparty/nlohmann_json
+/src/homenet_dm
+/src/homenet_hna
+/src/libevent_dm
+
+/src-dm/server
+/src-dm/serverssl

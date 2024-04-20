@@ -1,0 +1,9 @@
+AUTOMAKE_OPTIONS = subdir-objects
+ACLOCAL_AMFLAGS = $(ACLOCAL_FLAGS)
+AM_CFLAGS = -fPIC -Wall -Wextra
+AM_CFLAGS += -I/usr/local/include
+AM_LDFLAGS = -L/usr/local/lib -L.
+bin_PROGRAMS = server serverssl
+server_SOURCES = server.c workqueue.c
+serverssl_SOURCES = server-ssl.c workqueue.c
+serverssl_LDADD = -lssl -lcrypto 

@@ -25,6 +25,9 @@ autoconf
 autoheader
 automake -a
 autoreconf
+Or just try
+autoreconf -vfim
+
 
 compile the code using configure and Make
 ./configure
