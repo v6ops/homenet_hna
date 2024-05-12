@@ -22,14 +22,7 @@
 * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *
 */
-#include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 #include "ssl_session.h"
-
 
 /* start only used for ALPN negotiation (DNS over HTTPS) */
 
@@ -38,7 +31,8 @@
 int server_protos_advertised_cb(SSL *ssl, const unsigned char  **out, unsigned int *outlen, void *arg){
   *out=alpn_protocols;
   *outlen = (unsigned int)alpn_len;
-  std::cerr << "server_protos_advertised_cb" << std::endl;
+  //std::cerr << "server_protos_advertised_cb" << std::endl;
+  fprintf(stderr,"server_protos_advertised_cb\n");
   return SSL_TLSEXT_ERR_OK;
 }
 
@@ -124,7 +118,8 @@ void configure_client_context(SSL_CTX *ctx)
 
   long res=1;
   //res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/fullchain.pem", NULL);
-  res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/cabundle.pem", NULL);
+  //res = SSL_CTX_load_verify_locations(ctx, "../tests/testdata/cabundle.pem", NULL);
+    res = SSL_CTX_load_verify_locations(ctx, "../tests/dm/homenetdnsCA.pem",NULL);
 
   if(!(1 == res))
     {
@@ -245,12 +240,14 @@ void configure_server_context(SSL_CTX *ctx)
     //    ERR_print_errors_fp(stderr);
 //      exit(EXIT_FAILURE);
  //   }
-    if (SSL_CTX_use_certificate_chain_file(ctx, "../tests/testdata/fullchain.pem") <= 0) {
+    //if (SSL_CTX_use_certificate_chain_file(ctx, "../tests/testdata/fullchain.pem") <= 0) {
+    if (SSL_CTX_use_certificate_chain_file(ctx, "../tests/dm/fullchain.pem") <= 0) {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, "../tests/testdata/key.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    //if (SSL_CTX_use_PrivateKey_file(ctx, "../tests/testdata/key.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, "../tests/dm/key.pem", SSL_FILETYPE_PEM) <= 0 ) {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
@@ -272,7 +269,6 @@ void configure_server_context(SSL_CTX *ctx)
         exit(EXIT_FAILURE);
     }
     SSL_CTX_set_verify_depth(ctx, 5);
-
 
     STACK_OF(X509_NAME)  *list;
 
@@ -498,9 +494,9 @@ void print_san_name(const char* label, X509* const cert)
     {
         if(!cert) break; /* failed */
 
-        names = (stack_st_GENERAL_NAME*) X509_get_ext_d2i((X509 *) cert, NID_subject_alt_name, NULL, NULL);
+        //names = (stack_st_GENERAL_NAME*) X509_get_ext_d2i((X509 *) cert, NID_subject_alt_name, NULL, NULL);
 
-        //names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0 );
+        names = X509_get_ext_d2i(cert, NID_subject_alt_name, 0, 0 );
         if(!names) break;
 
         int i = 0, count = sk_GENERAL_NAME_num(names);

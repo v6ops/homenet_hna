@@ -2,6 +2,10 @@
 #ifndef WITH_SSL
 #define WITH_SSL
 #endif // WITH_SSL
+/* switch on the IPv6 code in libevent-cb.c */
+#ifndef WITH_IPv6
+#define WITH_IPv6
+#endif // WITH_IPv6
 
 #include "libevent-cb.h"
 #include "workqueue.h"

@@ -42,10 +42,10 @@
 #include <sys/wait.h>
 #include <string.h>
 
-int fork_make_knot_config(const char *zone, const char *dm_notify, const char *dm_acl);
-int fork_make_knot_ds(const char *zone,const char *ds_filename);
+int fork_make_knot_config(char *zone, char *dm_notify, char *dm_acl);
+int fork_make_knot_ds(char *zone,char *ds_filename);
 
-int fork_make_knot_dm_ds(const char *ds_rr);
-int fork_make_knot_dm_config(const char *zone, const char *dm_remote);
+int fork_make_knot_dm_ds(char *ds_rr);
+int fork_make_knot_dm_config(char *zone, char *dm_remote);
 
 #endif

@@ -1,6 +1,6 @@
 /* ldns_helper.h
 
-* Copyright (c) 2019 Ray Hunter
+* Copyright (c) 2019-2024 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -26,12 +26,6 @@
 #define FUNCTIONS_ldns_helpers_INCLUDED
 #define LDNS_MAX_FILENAME_LEN 250
 
-const int ldns_helpers_max_retry_count = 5; // try 3 times
-const int ldns_helpers_timeout_retry   = 2; // 2 seconds per try
-const int ldns_helpers_max_buffer_size     = 2048; // 2048 packet buffer
-
-const int ldns_helpers_verbose =1;
-
 //#include "config.h"
 #include "../config.h"
 #include <unistd.h>
@@ -48,6 +42,14 @@ const int ldns_helpers_verbose =1;
 #include <arpa/inet.h>
 #include "knot_helpers.h"
 
+//const int ldns_helpers_max_retry_count = 5; // try 3 times
+//const int ldns_helpers_timeout_retry   = 2; // 2 seconds per try
+//const int ldns_helpers_max_buffer_size     = 2048; // 2048 packet buffer
+//const int ldns_helpers_verbose =1;
+#define ldns_helpers_max_retry_count 5
+#define ldns_helpers_timeout_retry 2
+#define ldns_helpers_max_buffer_size 2048
+#define ldns_helpers_verbose 1
 
 ldns_zone * ldns_helpers_load_template (char *filename);
 ldns_zone * ldns_helpers_zone_read(const char * zone_file);
@@ -67,7 +69,7 @@ ldns_rr   * ldns_helpers_soa_rr_new(const char *zone_name) ;
 ldns_pkt  * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_string);
 ldns_pkt  * ldns_helpers_ds_update_new(const char *zone_name);
 
-ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *listen_string);
+ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *listen_string);
 int ldns_helpers_rr_list2listen_string(ldns_rr_list *rrl, const char *owner, char *listen_string) ;
 
 void        ldns_helpers_zone_to_configfile(ldns_zone *z,char *outputfile_name); // write a template zone as a bind zone config

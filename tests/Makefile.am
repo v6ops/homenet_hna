@@ -27,7 +27,8 @@ if HAVE_CUNIT
 check_PROGRAMS = main sample_test
 
 # complex test made up of several source files in one suite
-OBJECTS = main.cpp ldns_helpers_test.cpp
+#OBJECTS = main.cpp ldns_helpers_test.cpp
+OBJECTS = main.c ldns_helpers_test.c
 HFILES = ldns_helpers_test.h
 main_SOURCES = $(HFILES) $(OBJECTS)
 
@@ -44,7 +45,8 @@ main_LDADD += @CUNIT_LIBS@
 main_LDFLAGS = -static
 
 # stand alone test
-SAMPLE_OBJECTS = sample_test.cpp
+#SAMPLE_OBJECTS = sample_test.cpp
+SAMPLE_OBJECTS = sample_test.c
 SAMPLE_HFILES = 
 sample_test_SOURCES = $(SAMPLE_HFILES) $(SAMPLE_OBJECTS)
 sample_test_LDADD = @CUNIT_LIBS@

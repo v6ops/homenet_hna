@@ -13,9 +13,11 @@ DISTCLEANFILES = $(pkgconfig_DATA)
 lib_LTLIBRARIES = libhna.la
 
 #OBJECTS = find_next.cpp ssl_session.cpp base64url.cpp ldns_helpers.cpp knot_helpers.cpp ssl_helpers.cpp
-OBJECTS = ssl_session.cpp ldns_helpers.cpp knot_helpers.cpp ssl_helpers.cpp workqueue.cpp
+#OBJECTS = ssl_session.cpp ldns_helpers.cpp knot_helpers.cpp ssl_helpers.cpp workqueue.cpp
+#OBJECTS = ssl_session.c ldns_helpers.c knot_helpers.c ssl_helpers.c workqueue.c
+OBJECTS = ssl_session.c ldns_helpers.c ssl_helpers.c knot_helpers.c workqueue.c
 
-HFILES = ssl_session.h ldns_helpers.h knot_helpers.h ssl_helpers.h workqueue.h
+HFILES = ssl_session.h ldns_helpers.h ssl_helpers.h knot_helpers.h workqueue.h
 
 # Start with version information of 0:0:0 for each libtool library.
 # Update the version information only immediately before a public release of your software. More frequent updates are unnecessary, and only guarantee that the current interface number gets larger faster.

@@ -25,12 +25,13 @@
 #include "homenet_hna.h"
 
 // json config file
-#include <nlohmann/json.hpp>
-using json = nlohmann::json;
+//#include <nlohmann/json.hpp>
+//using json = nlohmann::json;
+#include <jansson.h>
 
 void handleFailure(void) {
 	ERR_print_errors_fp(stderr);
-	abort();
+	exit(1);
 }
 
 int main(int argc, char **argv)
@@ -40,7 +41,64 @@ int main(int argc, char **argv)
   BIO *web = NULL, *out = NULL;
   SSL *ssl = NULL;
   long res = 1;
+  printf("Main Starting\n");
 
+  // config
+  json_t *config_hna_client;
+  json_t *config_hna_server;
+  json_error_t json_error;
+  char *tmp_buf;
+
+  config_hna_server=json_load_file("./homenet_hna_server_config.json",0,&json_error);
+  if(!config_hna_server) {
+    fprintf(stderr,"%s",json_error.text);
+  }
+
+  //tmp_buf=json_dumps(config_hna_server,0);
+  //printf("Read server config: %s\n",tmp_buf);
+  //free(tmp_buf);
+
+  config_hna_client=json_load_file("./homenet_hna_client_config.json",0,&json_error);
+  if(!config_hna_client) {
+    fprintf(stderr,"%s",json_error.text);
+  }
+  //tmp_buf=json_dumps(config_hna_client,0);
+  //printf("Read client config: %s\n",tmp_buf);
+  //free(tmp_buf);
+
+  /* obj is a JSON object */
+  char *key;
+  json_t *value;
+  char *dm_ctrl=DEFAULT_DM_CTRL;
+  char *dm_notify=DEFAULT_DM_NOTIFY; // casting is bad but avoids warnings.
+  char *dm_acl=DEFAULT_DM_ACL;
+  char *dm_port=DEFAULT_DM_PORT;
+  char *zone=DEFAULT_ZONE;
+  char *hna_listen=DEFAULT_HNA_LISTEN;
+  char *hna_certificate=DEFAULT_HNA_CERTIFICATE;
+  char *hna_key=DEFAULT_HNA_KEY;
+
+  json_object_foreach(config_hna_client, key, value) {
+  // set up the hna client to DM connection via SSL
+    if(strcmp(key,"dm_ctrl")==0)        dm_ctrl=(char *)json_string_value(value);
+    if(strcmp(key,"dm_port")==0)        dm_port=(char *)json_string_value(value);
+    if(strcmp(key,"zone")==0)           zone=(char *)json_string_value(value);
+    if(strcmp(key,"dm_acl")==0)         dm_acl=(char *)json_string_value(value);
+    if(strcmp(key,"dm_notify")==0)      dm_notify=(char *)json_string_value(value);
+    if(strcmp(key,"hna_certificate")==0)hna_certificate=(char *)json_string_value(value);
+    if(strcmp(key,"hna_key")==0)        hna_key=(char *)json_string_value(value);
+  // end read config
+  }
+
+  // ldns and wire packets
+  ldns_pkt *notify;
+  ldns_pkt *axfr_pkt;
+  ldns_pkt *ns_pkt;
+  ldns_pkt *response_pkt;
+  ldns_zone *z;
+  char buf[80];
+
+/*
   std::string dm_ctrl=DEFAULT_DM_CTRL;
   std::string dm_notify=DEFAULT_DM_NOTIFY;
   std::string dm_acl=DEFAULT_DM_ACL;
@@ -49,7 +107,6 @@ int main(int argc, char **argv)
   std::string hna_listen=DEFAULT_HNA_LISTEN;
   std::string hna_certificate=DEFAULT_HNA_CERTIFICATE;
   std::string hna_key=DEFAULT_HNA_KEY;
-
   // config
   json config_hna_client;
   json config_hna_server;
@@ -85,14 +142,15 @@ int main(int argc, char **argv)
 
   if ( !(config_hna_server["hna_listen"].is_null()) )    hna_listen=config_hna_server["hna_listen"];
   // end read config
+  */
 
   // start config ssl
   init_openssl();
   ctx = create_client_context();
   configure_client_context(ctx);
 
-  ssl_session_set_cert_from_config(ctx, hna_certificate.c_str());
-  ssl_session_set_key_from_config(ctx, hna_key.c_str());
+  ssl_session_set_cert_from_config(ctx, hna_certificate);
+  ssl_session_set_key_from_config(ctx, hna_key);
   if ( !SSL_CTX_check_private_key(ctx) )
     {
         fprintf(stderr, "Private key does not match the public certificate\n");
@@ -102,10 +160,13 @@ int main(int argc, char **argv)
   web = BIO_new_ssl_connect(ctx);
   if(!(web != NULL)) handleFailure();
 
-  std::string connection_string=dm_ctrl+":"+dm_port;
-  std::cout << "Connecting to:" << connection_string << "\n";
+  char connection_string[80]; //unsafe
+  strcat(connection_string,dm_ctrl);
+  strcat(connection_string,":");
+  strcat(connection_string,dm_port);
+  printf("Connecting to:%s\n",connection_string);
 
-  res = BIO_set_conn_hostname(web, connection_string.c_str());
+  res = BIO_set_conn_hostname(web, connection_string);
   if(!(1 == res)) handleFailure();
 
   BIO_get_ssl(web, &ssl);
@@ -115,7 +176,7 @@ int main(int argc, char **argv)
   res = SSL_set_cipher_list(ssl, PREFERRED_CIPHERS);
   if(!(1 == res)) handleFailure();
 
-  res = SSL_set_tlsext_host_name(ssl, dm_ctrl.c_str());
+  res = SSL_set_tlsext_host_name(ssl, dm_ctrl);
   if(!(1 == res)) handleFailure();
 
   out = BIO_new_fp(stdout, BIO_NOCLOSE);
@@ -123,17 +184,22 @@ int main(int argc, char **argv)
   // end config ssl
   //
   // start connect ssl
+  printf("Do Connect.\n");
 
-  res = BIO_do_connect(web);
+  res = BIO_do_connect(web); // do_connect also actually does the full handshake
   if(!(1 == res)) handleFailure();
 
-  res = BIO_do_handshake(web);
+  printf("Do Handshake.\n");
+  res = BIO_do_handshake(web); // but behaviour may change between versions
   if(!(1 == res)) handleFailure();
 
   /* Step 1: verify a server certificate was presented during the negotiation */
+  printf("Get Peer cert:");
   X509* cert = SSL_get_peer_certificate(ssl);
+  X509_print_fp(stdout,cert);   // print the cert for debug
+  printf("\n");
+  if(cert == NULL) handleFailure();
   if(cert) { X509_free(cert); } /* Free immediately */
-  if(NULL == cert) handleFailure();
 
   /* Step 2: verify the result of chain verification */
   /* Verification performed according to RFC 4158    */
@@ -147,7 +213,7 @@ int main(int argc, char **argv)
 
   // fetch soa for our zone from the DM
   BIO_puts(out,"Creating AXFR\n");
-  axfr_pkt=ldns_helpers_axfr_query_new(zone.c_str());
+  axfr_pkt=ldns_helpers_axfr_query_new(zone);
   BIO_puts(out,"Created AXFR\n");
   ldns_pkt_print(stdout,axfr_pkt);
   BIO_puts(out,"Printed AXFR\n");
@@ -170,7 +236,7 @@ int main(int argc, char **argv)
     FILE *outputfile;
     if (!outputfile_name) {
       outputfile_name = LDNS_XMALLOC(char, LDNS_MAX_FILENAME_LEN);
-      snprintf(outputfile_name, LDNS_MAX_FILENAME_LEN, "%s.config", zone.c_str());
+      snprintf(outputfile_name, LDNS_MAX_FILENAME_LEN, "%s.config", zone);
     }
     if (z) {
       if (strncmp(outputfile_name, "-", 2) == 0) {
@@ -183,7 +249,7 @@ int main(int argc, char **argv)
         } else {
           ldns_zone_print(outputfile,z);
           fclose(outputfile);
-          fork_make_knot_config(zone.c_str(),dm_notify.c_str(),dm_acl.c_str());
+          fork_make_knot_config(zone,dm_notify,dm_acl);
         }
       }
 
@@ -203,7 +269,7 @@ int main(int argc, char **argv)
   /* start update ns */
   ldns_pkt *update_ns_pkt;
   BIO_puts(out,"Creating NS UPDATE\n");
-  update_ns_pkt=ldns_helpers_ns_update_new(zone.c_str(),hna_listen.c_str());
+  update_ns_pkt=ldns_helpers_ns_update_new(zone,hna_listen);
   BIO_puts(out,"Created NS UPDATE\n");
   ldns_pkt_print(stdout,update_ns_pkt);
   BIO_puts(out,"Printed NS UPDATE\n");
@@ -215,7 +281,7 @@ int main(int argc, char **argv)
   /* start update ds */
   ldns_pkt *update_ds_pkt;
   BIO_puts(out,"Creating DS UPDATE\n");
-  update_ds_pkt=ldns_helpers_ds_update_new(zone.c_str());
+  update_ds_pkt=ldns_helpers_ds_update_new(zone);
   BIO_puts(out,"Created DS UPDATE\n");
   ldns_pkt_print(stdout,update_ds_pkt);
   BIO_puts(out,"Printed DS UPDATE\n");
@@ -341,14 +407,14 @@ do
 
 */
 
-if(out)
-  BIO_free(out);
+  if(out)
+    BIO_free(out);
 
-if(web != NULL)
+  if(web != NULL)
   BIO_free_all(web);
 
-if(ctx != NULL) {
-  SSL_CTX_free(ctx);
-  cleanup_openssl();
-}
+  if(ctx != NULL) {
+    SSL_CTX_free(ctx);
+    cleanup_openssl();
+  }
 }

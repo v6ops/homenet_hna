@@ -176,6 +176,7 @@ void ldns_helpers_notify_via_socket(int s, struct addrinfo* res, uint8_t* wire, 
   int got_ack = 0;
   socklen_t addrlen = 0;
   uint8_t replybuf[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {replybuf[i]=0;}
   ldns_status status;
   ldns_pkt* pkt = NULL;
   
@@ -293,6 +294,7 @@ int ldns_helpers_notify_host(const char *zone_name,char *hostname) {
   ldns_pkt_set_id(notify, random()&0xffff);
   if(include_soa) {
     char buf[ldns_helpers_max_buffer_size];
+    for (int i=0; i<ldns_helpers_max_buffer_size; i++) {buf[i]='\0';}
     ldns_rr *soa_rr=NULL;
     ldns_rdf *prev=NULL;
     snprintf(buf, sizeof(buf), "%s 3600 IN SOA . . %u 0 0 0 0",
@@ -451,7 +453,8 @@ ldns_pkt * ldns_helpers_axfr_response_new(ldns_pkt *query_pkt) {
   ldns_rr_list *response_ad;
   ldns_rdf  *owner;
 
-  char zone_name[ldns_helpers_max_buffer_size]="\0";
+  char zone_name[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {zone_name[i]='\0';}
 
   axfr_response_pkt= ldns_pkt_new();
 
@@ -590,6 +593,7 @@ ldns_rr * ldns_helpers_soa_rr_new(const char *zone_name) {
 
   /* create the rr for inside the pkt */
   char buf[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {buf[i]='\0';}
   ldns_rr *soa_rr=NULL;
   ldns_rdf *prev=NULL;
   snprintf(buf, sizeof(buf), "%s 3600 IN SOA . . %u %u %u %u %u",
@@ -787,8 +791,10 @@ void ldns_helpers_zone_to_configfile(ldns_zone *z,char *outputfile_name) {
   FILE *outputfile;
   ldns_rr *soa_rr;
   ldns_rdf *zone_name_rdf;
-  char zone_name[ldns_helpers_max_buffer_size]="\0";
-  char mname[ldns_helpers_max_buffer_size]="\0";
+  char zone_name[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {zone_name[i]='\0';}
+  char mname[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {mname[i]='\0';}
 
   // get the zone name from the soa
   soa_rr=ldns_zone_soa(z);
@@ -874,10 +880,14 @@ ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *
   int k=0;
   int port=0;
   int last =0; // breal the loop on \0
-  char new_rr_str[ldns_helpers_max_buffer_size]="\0";
-  char address_buf[ldns_helpers_max_buffer_size]="\0";
-  char port_buf[ldns_helpers_max_buffer_size]="\0";
-  char tmp_buf[ldns_helpers_max_buffer_size]="\0";
+  char new_rr_str[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {new_rr_str[i]='\0';}
+  char address_buf[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {address_buf[i]='\0';}
+  char port_buf[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {port_buf[i]='\0';}
+  char tmp_buf[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {tmp_buf[i]='\0';}
 
   new_rr_list=ldns_rr_list_new();
   printf ("ldns_helpers_listen_string2rr_list: Parsing listen_string :%s:\n",listen_string);
@@ -962,9 +972,12 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
   ldns_rr_list *additional; //=ldns_rr_list_new();
   ldns_rr_class c = LDNS_RR_CLASS_IN;
   ldns_status status=LDNS_STATUS_OK;
-  char hna_name[ldns_helpers_max_buffer_size]="\0";
-  char parent[ldns_helpers_max_buffer_size]="\0";
-  char new_rr_str[ldns_helpers_max_buffer_size]="\0";
+  char hna_name[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {hna_name[i]='\0';}
+  char parent[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {parent[i]='\0';}
+  char new_rr_str[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {new_rr_str[i]='\0';}
 
   gethostname(hna_name,ldns_helpers_max_buffer_size);
   strcat(hna_name,".");
@@ -1003,7 +1016,8 @@ ldns_pkt * ldns_helpers_ds_update_new(const char *zone_name) {
   ldns_rr_list *additional=ldns_rr_list_new();
   ldns_rr_class c = LDNS_RR_CLASS_IN;
   ldns_status status=LDNS_STATUS_OK;
-  char parent[ldns_helpers_max_buffer_size]="\0";
+  char parent[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {parent[i]='\0';}
   //char new_rr_str[ldns_helpers_max_buffer_size]="\0";
   char * new_rr_str = NULL;
   char ds_file[LDNS_MAX_FILENAME_LEN]="\0";

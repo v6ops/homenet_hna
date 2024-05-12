@@ -6,7 +6,7 @@ AC_INIT([homenet_dm], [1.0])
 
 # Check for C compiler
 AC_PROG_CXX
-#AC_PROG_CC
+AC_PROG_CC
 AM_PROG_AR
 AC_PROG_AWK
 AC_PROG_INSTALL
@@ -43,6 +43,8 @@ AC_CHECK_LIB([ldns], [main], [], [echo "ldns DNS library not found.  Please inst
 AC_CHECK_LIB([event], [main], [], [echo "libevent library not found.  Please install libevent library before proceeding"; exit -1])
 AC_CHECK_HEADERS(event2/event.h event2/dns.h event2/bufferevent_ssl.h)
 AC_CHECK_LIB([event_openssl], [main], [], [echo "event_openssl library not found.  Please install event_openssl library before proceeding"; exit -1])
+AC_CHECK_HEADERS(jansson_config.h  jansson.h)
+AC_CHECK_LIB([jansson], [main], [], [echo "jansson JSON library not found.  Please install jansson library before proceeding"; exit -1])
 # this is bad but the check header doesn't seem to work with .hpp
 AC_CHECK_LIB([pthread], [main], [], [echo "libpthread library not found.  Please install libpthread library before proceeding"; exit -1])
 AC_CHECK_FILE(
@@ -105,6 +107,8 @@ AC_CONFIG_FILES([
  lib/Makefile
  src/Makefile
  tests/Makefile
+ src-dm/Makefile
+ src-hna/Makefile
 ])
 # Generate the output
 AC_OUTPUT

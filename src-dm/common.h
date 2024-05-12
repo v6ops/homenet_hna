@@ -30,6 +30,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
+#include "util.h"
+#ifdef WITH_DNS
+#include "dnsovertls.h"
+#endif
 
 /* Global SSL context */
 /* A single global context is OK as long as the  *
@@ -46,19 +50,23 @@ void handle_error(const char *file, int lineno, const char *msg) {
 
 #define int_error(msg) handle_error(__FILE__, __LINE__, msg)
 
+#ifdef WITH_SSL
+#include "util.h"
+#else
 void die(const char *msg) {
   perror(msg);
   exit(1);
 }
+#endif
 
 void print_unencrypted_data(char *buf, size_t len) {
   printf("%.*s", (int)len, buf);
 }
-#ifdef WITH_SSL
-// predefine for circular ref
-//typedef struct client client_t;
-#endif //WITH_SSL
 
+#ifdef WITH_SSL
+  // moved struct definition to external file so can include in other code
+#include "ssl_client.h"
+#else
 /* An instance of this object is created each time a client connection is
  * accepted. It stores the client file descriptor, the SSL objects, and data
  * which is waiting to be either written to socket or encrypted. */
@@ -85,13 +93,10 @@ struct ssl_client
   const char * last_state;
 
   /* Method to invoke when unencrypted bytes are available. */
-#ifdef WITH_SSL
-  void (*io_on_read)(struct ssl_client *p, char *buf, size_t len);
-  //client_t *p_client;
-#else
   void (*io_on_read)(char *buf, size_t len);
-#endif
-} client;
+};
+#endif // WITH_SSL
+
 
 /* This enum contols whether the SSL connection needs to initiate the SSL
  * handshake. */
@@ -170,7 +175,7 @@ void send_unencrypted_bytes(struct ssl_client *p, const char *buf, size_t len)
   char *p_tmp;
   p_tmp = (char*)realloc(p->encrypt_buf, p->encrypt_len + len);
   if (p_tmp == NULL){
-    die ("Failed to allocate space for p_dm_query->query query packet\n");
+    die ("Failed to allocate space for encrypt_buf\n");
   }
   p->encrypt_buf=p_tmp;
   memcpy(p->encrypt_buf+p->encrypt_len, buf, len);

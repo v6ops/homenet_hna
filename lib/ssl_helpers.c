@@ -95,7 +95,8 @@ int ssl_helpers_check_cert_cn(SSL *ssl, const char *cn) {
 //  SSL *ssl;
   X509 *cert;
   long v;
-  char expected_cn[ldns_helpers_max_buffer_size]="\0";
+  char expected_cn[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {expected_cn[i]='\0';}
   strcpy(expected_cn,"/CN=");
   strcat(expected_cn,cn);
 

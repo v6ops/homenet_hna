@@ -1,6 +1,6 @@
-/* homenet_hna homenet_dm
+/* dm_worker.cpp the worker callback functions that handle the DNS queries
 
-* Copyright (c) 2019 Ray Hunter
+* Copyright (c) 2019-2020 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -22,24 +22,39 @@
 * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *
 */
-#include "homenet_dm.h"
+//#include "dm_query.h"
+#include "dm_worker.h"
 
-
-
-int main(int argc, char **argv)
+// write a ldns packet to the wire
+//int write_ldns_pkt_to_wire(dm_query_t *p_dm_query, ldns_pkt *pkt)
+int write_ldns_pkt_to_wire(struct ssl_client *p_ssl_client, ldns_pkt *pkt)
 {
-  std::cout << "Main Starting\n" << std::flush;
-  SSL_CTX *ctx;
+  // ldns and wire packets
+  uint8_t *response = NULL;
+  size_t response_len = 0;
+  ldns_status status;
+  int result;
 
-  init_openssl();
-  ctx = create_server_context();
+  status = ldns_pkt2wire(&response, pkt, &response_len);
+  if(status != LDNS_STATUS_OK) {
+    printf("Error converting packet to hex %s.\n", ldns_get_errorstr_by_id(status));
+    return -1;
+  }
+  // use the transport callback to send
+  printf("send packet %i\n",(int)response_len);
+  result = p_ssl_client->packet_write(p_ssl_client, (char *)response, response_len);
+  printf("free packet\n");
+  // free up the buffer
+  if (response != NULL) {
+    free(response);
+    response =NULL;
+  }
+  return result;
+}
 
-  configure_server_context(ctx);
-
-  //char ipv6_address[40]="2001:470:1f15:62e:21c::2";
-  //sock = create_ssl_socket(4433,ipv6_address);
-  //
-  BIO *sbio, *bbio, *acpt, *out;
+//int dm_worker(dm_query_t * dm_query)
+int dm_worker(struct ssl_client *p_ssl_client)
+{
   /* dns */
   ldns_pkt *query_pkt;
   //ldns_rr_list *query_answer_section;
@@ -56,145 +71,41 @@ int main(int argc, char **argv)
 
   ldns_rdf *origin = NULL;
   ldns_str2rdf_dname(&origin, "homenetdns.com");
+  char buf[80];
 
   /* zone */
   const char *zone_file="../tests/testdata/fwd.homenetdns.com.db";
   ldns_zone *zone;
-  int line_nr;
-  FILE *zone_fp;
+  zone=ldns_helpers_zone_read(zone_file);
 
-  //ldns_rdf *origin = NULL;
-  char buf[80];
-
-  SSL *ssl;
-  int c=0;
-
-
-  out = BIO_new_fp(stdout, BIO_NOCLOSE);
-
-  printf("Reading zone file %s\n", zone_file);
-  zone_fp = fopen(zone_file, "r");
-  if (!zone_fp) {
-    fprintf(stderr, "Unable to open %s: %s\n", zone_file, strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-  
-  line_nr = 0;
-  status = ldns_zone_new_frm_fp_l(&zone, zone_fp, origin, 0, LDNS_RR_CLASS_IN, &line_nr);
-
-  if (status != LDNS_STATUS_OK) {
-    printf("Zone reader failed, aborting\n");
-    exit(EXIT_FAILURE);
-  } else {
-    printf("Read %u resource records in zone file\n", (unsigned int) ldns_zone_rr_count(zone));
-  }
-  fclose(zone_fp);
-
-  // for testing only service 10 requests
-  while (c<10) {
-  c++;
-
-  BIO_puts(out, "Set Up Connection\n");
-  /* New SSL BIO setup as server */
-  sbio=BIO_new_ssl(ctx,0);
-
-  BIO_get_ssl(sbio, &ssl);
-
-  if(!ssl) {
-    fprintf(stderr, "Can't locate SSL pointer\n");
-    abort();
-  }
-
-  /* Don't want any retries */
-  SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
-
-  /* Create the buffering BIO */
-  bbio = BIO_new(BIO_f_buffer());
-
-  /* Add openssl to the BIO chain */
-  sbio = BIO_push(bbio, sbio);
-  //char host_port[40]="[2001:470:1f15:62e:21c::2]:4433";
-  ////char host_port[40]="[fe80::2d05:39:3294:453b]:4433";
-  //char host_port[40]="192.168.1.1:4433";
-  char host_port[40]="*:4433";
-
-  // Create the listening socket
-  acpt=BIO_new_accept(host_port);
-
- /* By doing this when a new connection is established
-  * we automatically have sbio inserted into it. The
-  * BIO chain is now 'swallowed' by the accept BIO and
-  * will be freed when the accept BIO is freed.
-  */
-
-  BIO_set_accept_bios(acpt,sbio);
-
-  /* Setup accept BIO */
-  if(BIO_do_accept(acpt) <= 0) {
-    fprintf(stderr, "Error setting up accept BIO\n");
-    ERR_print_errors_fp(stderr);
-    return 0;
-  }
-  BIO_puts(out, "Waiting for Connection\n");
-
-  /* Now wait for incoming connection */
-  if(BIO_do_accept(acpt) <= 0) {
-    fprintf(stderr, "Error in connection\n");
-    ERR_print_errors_fp(stderr);
-    return 0;
-  }
-
-  /* We only want one connection so remove and free
-   * accept BIO
-   */
-
-  sbio = BIO_pop(acpt);
-
-  BIO_free_all(acpt);
-
-  if(BIO_do_handshake(sbio) <= 0) {
-    fprintf(stderr, "Error in SSL handshake\n");
-    ERR_print_errors_fp(stderr);
-    return 0;
-  }
-
-  //printf("Checking cert matches soa owner %s\n","sub.homenetdns.com");
-  //if(ssl_helpers_check_cert_cn(ssl, "sub.homenetdns.com") !=1) {
-  //  printf ("Warning cert does not match soa owner %s\n","sub.homenetdns.com");
-  //} else {
-  //  printf("Cert Matches\n");
-  // }
-
-  BIO_puts(out, "Established Connection including SSL handshake\n");
-
-
-  /* Handle connections */
-  while(1) {
-   if ( ( query_pkt=ssl_helpers_bio2pkt(sbio) )==NULL ) {
-     break;
+  /* Handle query */
+   status=ldns_wire2pkt(&query_pkt,(const uint8_t*)p_ssl_client->query,p_ssl_client->query_len);
+   if (status!=LDNS_STATUS_OK ) {
+      printf( "Invalid incoming packet.\n");
    } else {
-      BIO_puts(out, "Incoming packet\n");
+      printf( "Incoming packet\n");
       ldns_pkt_print(stdout, query_pkt);
 
     // check the opcode and process appropriately
     // start NOTIFY
     if(ldns_pkt_get_opcode(query_pkt)==LDNS_PACKET_NOTIFY) {
       sprintf(buf, "incoming notify\n");
-      BIO_puts(out, buf);
+      printf("%s",buf);
 
       while ( (query_answer_rr=ldns_rr_list_pop_rr(ldns_pkt_answer(query_pkt))) ){
         sprintf(buf, "processing RR\n");
-        BIO_puts(out, buf);
+        printf("%s",buf);
 
         owner=ldns_rr_owner(query_answer_rr);
         ldns_dname_2str(buf,owner);
+        printf("%s",buf);
       }
-      ldns_pkt_free(query_pkt);  
+      ldns_helpers_pkt_free(query_pkt);  
     } // end NOTIFY
     else if(ldns_pkt_get_opcode(query_pkt)==LDNS_PACKET_UPDATE) {
       // start UPDATE
       sprintf(buf, "incoming update\n");
-      BIO_puts(out, buf);
+      printf("%s",buf);
 
       int pass_sanity=1;
       ldns_rdf *rdf;
@@ -229,7 +140,7 @@ int main(int argc, char **argv)
 	// check if we have DS or NS in the Authority
         while ( (query_authority_rr=ldns_rr_list_pop_rr(ldns_pkt_authority(query_pkt))) ){
           sprintf(buf, "processing RR\n");
-          BIO_puts(out, buf);
+          printf("%s",buf);
 
 	  if (ldns_rr_get_type(query_authority_rr) == LDNS_RR_TYPE_NS ) {
             printf("Got an NS RR in the authority section\n");
@@ -244,7 +155,7 @@ int main(int argc, char **argv)
             }
             // TODO check certificate DN against owner of the NS RR
 	    printf("Checking cert matches RR owner %s\n",ns_owner);
-	    if(ssl_helpers_check_cert_cn(ssl, ns_owner) !=1) {
+	    if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ns_owner) !=1) {
 		    printf ("Warning cert does not match RR owner %s\n",ns_owner);
 	    }
 	    // TODO additional checks to match the RDF of the NS RR to the owner of the A and AAAA RRs
@@ -252,7 +163,7 @@ int main(int argc, char **argv)
 	    while ( (rdf=ldns_rr_pop_rdf(query_authority_rr)) ) {
 	      char *ptr;
 	      ptr=ldns_rdf2str(rdf);
-	      ldns_rdf_free(rdf);
+	      ldns_helpers_rdf_free(rdf);
 	      printf("Checking RDF %s from additional section\n",ptr);
 
 	      ldns_helpers_rr_list2listen_string(ldns_pkt_additional(query_pkt),ptr,listen_string);
@@ -274,7 +185,7 @@ int main(int argc, char **argv)
             printf("Owner %s\n",ds_owner);
             // TODO check certificate DN against RR owner
 	    printf("Checking cert matches RR owner %s\n",ds_owner);
-	    if(ssl_helpers_check_cert_cn(ssl, ds_owner) !=1) {
+	    if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ds_owner) !=1) {
 	      printf ("Warning cert does not match RR owner %s\n",ds_owner);
 	    }
             printf("Saving DS\n");
@@ -289,39 +200,42 @@ int main(int argc, char **argv)
       }
 
 
-      ldns_pkt_free(query_pkt);  
+      ldns_helpers_pkt_free(query_pkt);  
     } // end UPDATE
-    else { // handle other queries
+    else if(ldns_pkt_get_opcode(query_pkt)==LDNS_PACKET_QUERY) {
       sprintf(buf, "incoming query\n");
-      BIO_puts(out, buf);
+      printf("%s",buf);
 
       query_question_rr = ldns_rr_list_rr(ldns_pkt_question(query_pkt), 0);
       if (ldns_rr_get_type(query_question_rr) == LDNS_RR_TYPE_AXFR ) {
         // answer  AXFR with a template
         sprintf(buf, "incoming AXFR\n");
-        BIO_puts(out, buf);
+        printf("%s",buf);
         response_pkt =  ldns_helpers_axfr_response_new(query_pkt);
         sprintf(buf, "Created AXFR\n");
-        BIO_puts(out, buf);
-        ldns_pkt_free(query_pkt);  
-        BIO_puts(out, "Freed query\n");
-        BIO_puts(out, "Sending AXFR\n");
+        printf("%s",buf);
+        ldns_helpers_pkt_free(query_pkt);  
+        printf( "Freed query\n");
+        printf( "Sending AXFR\n");
         ldns_pkt_print(stdout, response_pkt);
-	ssl_helpers_pkt2bio(response_pkt,sbio);
-        ldns_pkt_free(response_pkt);
-        BIO_puts(out, "Sent AXFR\n");
+	// ssl_helpers_pkt2bio(response_pkt,sbio);
+	// ssl_dnsovertls_pkt2bev(dm_query->bev, response_pkt);
+	write_ldns_pkt_to_wire(p_ssl_client, response_pkt);
+        ldns_helpers_pkt_free(response_pkt);
+        printf( "Sent AXFR\n");
 
-        BIO_puts(out, "Done axfr\n");
+        printf( "Done axfr\n");
 
       } else {
         response_qr = ldns_rr_list_new();
         ldns_rr_list_push_rr(response_qr, ldns_rr_clone(query_question_rr));
 
+        /* get matching RR set from the zone */
         response_an = get_rrset(zone, ldns_rr_owner(query_question_rr), ldns_rr_get_type(query_question_rr), ldns_rr_get_class(query_question_rr));
-        response_pkt = ldns_pkt_new();
         response_ns = ldns_rr_list_new();
         response_ad = ldns_rr_list_new();
-    
+
+        response_pkt = ldns_pkt_new();
         ldns_pkt_set_qr(response_pkt, 1);
         ldns_pkt_set_aa(response_pkt, 1);
         ldns_pkt_set_id(response_pkt, ldns_pkt_id(query_pkt));
@@ -331,29 +245,29 @@ int main(int argc, char **argv)
         ldns_pkt_push_rr_list(response_pkt, LDNS_SECTION_AUTHORITY, response_ns);
         ldns_pkt_push_rr_list(response_pkt, LDNS_SECTION_ADDITIONAL, response_ad);
 
-        BIO_puts(out, "Sending reponse\n");
+        printf( "Sending reponse\n");
         ldns_pkt_print(stdout, response_pkt);
-	ssl_helpers_pkt2bio(response_pkt,sbio);
-        BIO_puts(out, "Sent response\n");
+	//ssl_helpers_pkt2bio(response_pkt,sbio);
+	//ssl_dnsovertls_pkt2bev(dm_query->bev, response_pkt);
+	write_ldns_pkt_to_wire(p_ssl_client, response_pkt);
+        printf( "Sent response\n");
     
-        ldns_pkt_free(query_pkt);
-        ldns_pkt_free(response_pkt);
-        ldns_rr_list_free(response_qr);
-        ldns_rr_list_free(response_an);
-        ldns_rr_list_free(response_ns);
-        ldns_rr_list_free(response_ad);
-        BIO_puts(out, "Done other query\n");
+        ldns_helpers_pkt_free(query_pkt);
+        ldns_helpers_pkt_free(response_pkt);
+        // following are freed by freeing the packet
+        // ldns_helpers_rr_list_free(response_qr);
+        // ldns_helpers_rr_list_free(response_an);
+        // ldns_helpers_rr_list_free(response_ns);
+        // ldns_helpers_rr_list_free(response_ad);
+        printf( "Done other query\n");
 
       }
+    } // end QUERY
+    else { // handle other queries
+      sprintf(buf, "incoming not implemented\n");
+      printf("%s",buf);
     } // other queries
    } // got query pkt
-  }  // end while handle connections
-
-  /* Since there is a buffering BIO present we had better flush it */
-  BIO_flush(sbio);
-  BIO_free_all(sbio);
-  }
-
-  SSL_CTX_free(ctx);
-  cleanup_openssl();
+  //dm_query_free (dm_query); // free up the memory of the inbound query
+  return 0;
 }

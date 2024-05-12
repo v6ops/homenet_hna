@@ -4,6 +4,7 @@
 *.la
 *.Po
 *.gch
+*.csr
 # automake
 autom4te.cache/**
 /aclocal.m4
@@ -30,6 +31,8 @@ autom4te.cache/**
 /config.h
 /config.log
 /configure.scan
+/configure
+/configure.ac
 # tests
 /tests/test-suite.log
 
@@ -41,3 +44,7 @@ autom4te.cache/**
 
 /src-dm/server
 /src-dm/serverssl
+/src-dm/homenet_dm
+/src-dm/libevent_dm
+
+/src-hna/homenethna

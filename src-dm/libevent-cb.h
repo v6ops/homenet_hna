@@ -40,6 +40,10 @@
 #include <event.h>
 #include <signal.h>
 
+#ifdef WITH_DNSOVERTLS
+#include "dnsovertls.h"
+#endif //WITH_DNSOVERTLS
+
 #include "workqueue.h"
 
 #ifdef WITH_SSL
@@ -70,35 +74,39 @@
         fprintf(stderr, __VA_ARGS__); \
     } while(0)
 
-/**
- * Struct to carry around connection (client)-specific data.
- */
+#ifdef WITH_DNSOVERTLS
+#include "client.h" // use the external definition shared with other code
+#else
+//
+// Struct to carry around connection (client)-specific data.
+//
 typedef struct client {
-    /* The client's socket. */
+    // The client's socket.
     int fd;
 
-    /* The event_base for this client. */
+    // The event_base for this client.
     struct event_base *evbase;
 
-    /* The bufferedevent for this client. */
+    // The bufferedevent for this client.
     struct bufferevent *buf_ev;
 
-    /* The output buffer for this client. */
+    // The output buffer for this client.
     struct evbuffer *output_buffer;
 
-    /* Here you can add your own application-specific attributes which
-     * are connection-specific. */
+    // Here you can add your own application-specific attributes which
+    // are connection-specific.
 
-    /* Count of callbacks to read. */
+    // Count of callbacks to read.
     int cb_read_count;
 
  #ifdef WITH_SSL
-    /* following is used by common.h for openssl and copied across from
-     * the per client struct so we only need to pass one arg */
+    // following is used by common.h for openssl and copied across from
+    // the per client struct so we only need to pass one arg
 
     struct ssl_client *p_ssl_client;
-#endif
+#endif //WITH_SSL
 } client_t;
+#endif //WITH_DNSOVERTLS
 
 static struct event_base *evbase_accept;
 static workqueue_t workqueue;
@@ -178,6 +186,7 @@ int do_libevent_write(client_t *p_client) {
 #endif //WITH_SSL
 
 #ifdef WITH_SSL
+// implements a simple echo server. Coded at length explicitly to show working.
 void do_libevent_echo(struct ssl_client *p_ssl_client,char *buf, size_t len) {
   printf("Echo: %.*s\n", (int)len, buf);
   char output[DEFAULT_BUF_SIZE];
@@ -310,7 +319,11 @@ static void server_job_function(struct job *job) {
  */
 void on_accept(int fd, short ev, void *arg) {
     int client_fd;
+#ifdef WITH_IPv6
+    struct sockaddr_in6 client_addr;
+#else
     struct sockaddr_in client_addr;
+#endif
     socklen_t client_len = sizeof(client_addr);
     workqueue_t *workqueue = (workqueue_t *)arg;
     client_t *client;
@@ -338,13 +351,19 @@ void on_accept(int fd, short ev, void *arg) {
     memset(client, 0, sizeof(*client));
     client->fd = client_fd;
 
+#ifdef WITH_IPv6
+    char human_addr[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6,&(client_addr.sin6_addr),human_addr,INET6_ADDRSTRLEN);
+    printf("client [%d]: accepted connection from %s.\n", client_fd,human_addr);
+#else
     printf("client [%d]: accepted connection from %s.\n", client_fd,inet_ntoa(client_addr.sin_addr));
+#endif
 
-    client->cb_read_count = 0;
     /**
      * Add any custom code anywhere from here to the end of this function
      * to initialize your application-specific attributes in the client struct.
      **/
+    client->cb_read_count = 0;
 
     if ((client->output_buffer = evbuffer_new()) == NULL) {
         warn("client output buffer allocation failed");
@@ -360,6 +379,7 @@ void on_accept(int fd, short ev, void *arg) {
 
 #ifdef WITH_SSL
     /* initialise SSL portion of the client */
+    printf("client [%d]: Init SSL\n",client_fd);
      if ((client->p_ssl_client = malloc(sizeof(*client->p_ssl_client))) == NULL) {
         die("failed to allocate memory for SSL client state");
   }
@@ -369,10 +389,18 @@ void on_accept(int fd, short ev, void *arg) {
     /* callback to process the unencrypted data from ssl on every read */
     /* points the real work function where inbound data is processed   */
     /* over-write the one provided with our own                        */
+#if WITH_DNSOVERTLS
+    dnsovertls_reset(client->p_ssl_client);
+    printf("client [%d]: reset dnsovertls status: %i\n",client_fd,(int)client->p_ssl_client->status);
+    // callback for send to ssl from dnsovertls
+    client->p_ssl_client->packet_write=dnsovertls_write;  
+    // callback for read from ssl to dnsovertls
+    client->p_ssl_client->io_on_read = dnsovertls_read;
+#else
+    // simple character echo server for testing
     client->p_ssl_client->io_on_read = do_libevent_echo;
-    // the ssl callback needs a pointer back to the client
-    // due to use of 2 independent structs for libevent and ssl
-    //client->p_ssl_client->p_client = client;
+#endif //WITH_DNSOVERTLS
+
 #endif // WITH_SSL
 
     /**
@@ -431,7 +459,11 @@ void on_accept(int fd, short ev, void *arg) {
  */
 int runServer(int port) {
     int listenfd;
+#ifdef WITH_IPv6
+    struct sockaddr_in6 listen_addr;
+#else
     struct sockaddr_in listen_addr;
+#endif
     struct event ev_accept;
     int reuseaddr_on;
 
@@ -439,6 +471,24 @@ int runServer(int port) {
     // Initialise the SSL library and load certs
     // Assumes single global context ctx, which should not be a problem
     ssl_init("server.crt", "server.key"); // see README to create these files
+    // Load up our private CA cert
+    // Other CA locations (DM root CA cert)
+    if ( SSL_CTX_load_verify_locations(ctx, "../tests/dm/homenetdnsCA.pem",NULL) <=0) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+    SSL_CTX_set_verify_depth(ctx, 5);
+
+    // tell the client what we accept
+    STACK_OF(X509_NAME)  *list;
+
+    list=SSL_load_client_CA_file("../tests/dm/homenetdnsCA.pem");
+    if (list == NULL) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+    SSL_CTX_set_client_CA_list(ctx,list);
+
 #endif //WITH_SSL
 
     /* Initialize libevent. */
@@ -456,6 +506,16 @@ int runServer(int port) {
     sigaction(SIGTERM, &siginfo, NULL);
 
     /* Create our listening socket. */
+#ifdef WITH_IPv6
+    listenfd = socket(AF_INET6, SOCK_STREAM, 0);
+    if (listenfd < 0) {
+        err(1, "listen failed");
+    }
+    memset(&listen_addr, 0, sizeof(listen_addr));
+    listen_addr.sin6_family = AF_INET6;
+    listen_addr.sin6_addr = in6addr_any;
+    listen_addr.sin6_port = htons(port);
+#else
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
     if (listenfd < 0) {
         err(1, "listen failed");
@@ -464,6 +524,7 @@ int runServer(int port) {
     listen_addr.sin_family = AF_INET;
     listen_addr.sin_addr.s_addr = INADDR_ANY;
     listen_addr.sin_port = htons(port);
+#endif
     if (bind(listenfd, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0) {
         err(1, "bind failed");
     }

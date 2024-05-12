@@ -1,17 +1,19 @@
 #ifndef PROGRAM_MAIN_INCLUDED
 #define PROGRAM_MAIN_INCLUDED
 
-#include <iostream>
-#include <fstream>
-#include <unistd.h>
+//#include <iostream>
+//#include <fstream>
+//#include <unistd.h>
 #include <string.h>
-#include <cstring>
+//#include <cstring>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
+#include <jansson.h>
+
 
 #include "../lib/ssl_session.h"
 #include "../lib/ldns_helpers.h"

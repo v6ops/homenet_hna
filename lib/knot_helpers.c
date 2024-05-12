@@ -26,7 +26,7 @@
 
 
 
-int fork_make_knot_config(const char *zone, const char *dm_notify, const char *dm_acl) {
+int fork_make_knot_config(char *zone, char *dm_notify, char *dm_acl) {
 pid_t  pid; 
    int status; 
    fprintf(stderr,"knot_helpers_make_knot_config %s %s %s\n",zone,dm_notify,dm_acl);
@@ -38,9 +38,15 @@ pid_t  pid;
    else if (pid == 0){ 
       printf("child process, pid = %u\n",getpid()); 
   
-      static const char* argv_list[] = {MAKE_KNOT_CONFIG,zone,dm_notify,dm_acl,NULL}; 
+      //char *argv_list[] = {MAKE_KNOT_CONFIG,zone,dm_notify,dm_acl,NULL}; 
+      char *argv_list[5] = {NULL}; 
+      argv_list[0] = MAKE_KNOT_CONFIG; 
+      argv_list[1] = zone; 
+      argv_list[2] = dm_notify; 
+      argv_list[3] = dm_acl; 
+      argv_list[4] = NULL; 
   
-      execv(MAKE_KNOT_CONFIG,const_cast<char **>(argv_list)); 
+      execv(MAKE_KNOT_CONFIG,argv_list); 
       exit(0); 
    } 
    else{ 
@@ -68,7 +74,7 @@ pid_t  pid;
 } 
 
 
-int fork_make_knot_ds(const char *zone,const char *ds_filename) {
+int fork_make_knot_ds(char *zone,char *ds_filename) {
 pid_t  pid; 
    int status; 
    fprintf(stderr,"knot_helpers_make_knot_ds %s\n",zone);
@@ -81,9 +87,14 @@ pid_t  pid;
    else if (pid == 0){ 
       printf("child process, pid = %u\n",getpid()); 
   
-      static const char* argv_list[] = {MAKE_KNOT_DS,zone,ds_filename,NULL}; 
+      //char *argv_list[] = {MAKE_KNOT_DS,zone,ds_filename,NULL}; 
+      char *argv_list[4] = {NULL}; 
+      argv_list[0] = MAKE_KNOT_DS; 
+      argv_list[1] = zone; 
+      argv_list[2] = ds_filename; 
+      argv_list[3] = NULL; 
   
-      execv(MAKE_KNOT_DS,const_cast<char **>(argv_list)); 
+      execv(MAKE_KNOT_DS,argv_list); 
       exit(0); 
    } 
    else{ 
@@ -111,7 +122,7 @@ pid_t  pid;
 } 
 
 // take a text DS RR and place in the DM comfig
-int fork_make_knot_dm_ds(const char *ds_rr) {
+int fork_make_knot_dm_ds(char *ds_rr) {
 pid_t  pid; 
    int status; 
    fprintf(stderr,"knot_helpers_make_knot_dm_ds %s\n",ds_rr);
@@ -124,9 +135,13 @@ pid_t  pid;
    else if (pid == 0){ 
       printf("child process, pid = %u\n",getpid()); 
   
-      static const char* argv_list[] = {MAKE_KNOT_DM_DS,ds_rr,NULL}; 
+      //char *argv_list[] = {MAKE_KNOT_DM_DS,ds_rr,NULL}; 
+      char *argv_list[3] = {NULL}; 
+      argv_list[0] = MAKE_KNOT_DM_DS; 
+      argv_list[1] = ds_rr; 
+      argv_list[2] = NULL; 
   
-      execv(MAKE_KNOT_DM_DS,const_cast<char **>(argv_list)); 
+      execv(MAKE_KNOT_DM_DS,argv_list); 
       exit(0); 
    } 
    else{ 
@@ -153,7 +168,7 @@ pid_t  pid;
    } 
 } 
 
-int fork_make_knot_dm_config(const char *zone, const char *dm_remote) {
+int fork_make_knot_dm_config(char *zone, char *dm_remote) {
 pid_t  pid; 
    int status; 
    fprintf(stderr,"knot_helpers_make_dm_knot_config %s %s\n",zone,dm_remote);
@@ -165,9 +180,14 @@ pid_t  pid;
    else if (pid == 0){ 
       printf("child process, pid = %u\n",getpid()); 
   
-      static const char* argv_list[] = {MAKE_KNOT_DM_CONFIG,zone,dm_remote,NULL}; 
+      //char *argv_list[] = {MAKE_KNOT_DM_CONFIG,zone,dm_remote,NULL}; 
+      char *argv_list[4] = {NULL}; 
+      argv_list[0] = MAKE_KNOT_DM_CONFIG; 
+      argv_list[1] = zone; 
+      argv_list[2] = dm_remote; 
+      argv_list[3] = NULL; 
   
-      execv(MAKE_KNOT_DM_CONFIG,const_cast<char **>(argv_list)); 
+      execv(MAKE_KNOT_DM_CONFIG,argv_list); 
       exit(0); 
    } 
    else{ 

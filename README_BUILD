@@ -1,34 +1,55 @@
-Install the ldns lib
+1. Prerequisites
+================
+
+1.1 LDNS
+--------
+
+Client and server make use of the LDNS library from NL Net Labs.
+Installation should be performed before building and is something like:
+
+source can be downloaded from:
 https://nlnetlabs.nl/projects/ldns/download/
 
+cd ~
 mkdir ldns
 cd ldns
 curl -o ldns.tar.gz https://nlnetlabs.nl/downloads/ldns/ldns-1.8.3.tar.gz
 gzip -d ldns.tar.gz 
 tar xvf ./ldns.tar 
-autoreconf
-libtool
+autoreconf -fi
 ./configure 
 sudo make install
 
+1.2 JSON
+--------
+The client makes use of the Jansson JSON library for config parsing.
+
+Source can be obtained from https://github.com/akheron/jansson
+
+Installation should be performed before building and is something like:
+
+cd ~
+git clone https://github.com/akheron/jansson
+cd jansson
+autoreconf -fi
+
+./configure
+make
+make check
+sudo make install
 Install json lib
 git clone https://github.com/nlohmann/json
 cd json
 sudo mkdir -p /usr/local/include/nlohmann
 sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
 
+2. Make the code
+================
+
 Build the GNU build system
 cd ~/homenet_hna
-libtoolize
-aclocal
-autoconf
-autoheader
-automake -a
-autoreconf
-Or just try
-autoreconf -vfim
+autoreconf -vfi
 
-
-compile the code using configure and Make
+compile the code using configure and make
 ./configure
 make

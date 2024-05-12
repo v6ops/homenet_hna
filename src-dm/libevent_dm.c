@@ -39,8 +39,13 @@
 #include <event2/listener.h>
 #include <event2/bufferevent_ssl.h>
 
+#include "client.h"
+#include "util.h"
+#include "ssl_client.h"
 #include "dm_worker.h"
-#include "homenet_dm.h"
+#include "../lib/ssl_session.h"
+
+//#include "homenet_dm.h"
 
 /* Number of worker threads.  Should match number of CPU cores reported in /proc/cpuinfo. */
 #define NUM_THREADS 1
@@ -54,47 +59,48 @@ static workqueue_t workqueue;
 /* Signal handler function (defined below). */
 static void sig_handler(int signal);
 
-/**
- * Struct to carry around connection (client)-specific data.
- */
+/*
+// Struct to carry around connection (client)-specific data.
 typedef struct client {
-    /* client's SSL CTX */
+    // client's SSL CTX
     SSL *ssl;
 
-    /* The client's socket. */
+    // The client's socket.
     int sock;
 
-    /* client's address */
+    // client's address 
     struct sockaddr *sa;
 
-    /* client's address length */
+    // client's address length 
     int sa_len;
 
-    /* The event_base for this client. */
+    // The event_base for this client. 
     struct event_base *evbase;
 
-    /* The bufferedevent for this client. */
+    // The bufferedevent for this client. 
     struct bufferevent *bev;
 
-    /* Here you can add your own application-specific attributes which
-     * are connection-specific. */
+    // Here you can add your own application-specific attributes which
+    // are connection-specific. 
 
-    /* The status of the DNS over SSL stream for this client. */
+    // The status of the DNS over SSL stream for this client. 
     int status;
 
-    /* The expected number of octets in this query */
-    unsigned int expected_octets;
+    // The expected number of octets in this query 
+    //unsigned int expected_octets;
+    size_t expected_octets;
 
-    /* The 1st octet of the length field (rfc7858 rfc1035) */
+    // The 1st octet of the length field (rfc7858 rfc1035) 
     unsigned char len1;
 
-    /* The 2nd octet of the length field. SHOULD be sent with len1 but not guaranteed */
+    // The 2nd octet of the length field. SHOULD be sent with len1 but not guaranteed 
     unsigned char len2;
 
-    /* The received number of octets in this query (1 DNS query can span multiple SSL packets)*/
-    unsigned int query_len;
+    // The received number of octets in this query (1 DNS query can span multiple SSL packets)
+    //unsigned int query_len;
+    size_t query_len;
 
-    /* the query packet in wire format */
+    // the query packet in wire format 
     char *query;
 
 } client_t;
@@ -102,18 +108,44 @@ typedef struct client {
 #define DNSOVERTLS_WAITING_LEN1 1
 #define DNSOVERTLS_WAITING_LEN2 2
 #define DNSOVERTLS_WAITING_QUERY 3
+*/
 
-void ssl_dnsovertls_reset(client_t * client) {
+void ssl_dnsovertls_reset(struct ssl_client *p_ssl_client) {
 
-    if (client==NULL) return;
-    client->status=DNSOVERTLS_WAITING_LEN1;
-    client->len1=0;
-    client->len2=0;
-    client->expected_octets=0;
-    if (client->query != NULL) {
-        free(client->query);
-        client->query = NULL;
+    if (p_ssl_client==NULL) return;
+    p_ssl_client->status=DNSOVERTLS_WAITING_LEN1;
+    p_ssl_client->len1=0;
+    p_ssl_client->len2=0;
+    p_ssl_client->expected_octets=0;
+    if (p_ssl_client->query != NULL) {
+        free(p_ssl_client->query);
+        p_ssl_client->query = NULL;
     }
+}
+
+//int dnsovertls_write(dm_query_t *p_dm_query, char *response, size_t response_len)
+int dnsovertls_write(struct ssl_client *p_ssl_client, char *response, size_t response_len)
+{
+  struct bufferevent *bev = p_ssl_client->bev;
+  size_t temp=0;
+  unsigned char len1;
+  unsigned char len2;
+  int result=0;
+
+  temp=response_len;
+  len2=(unsigned char) (temp & 0xff);
+  len1=(unsigned char) (temp>>8 & 0xff) ;
+  printf("Sending packet length %u %02x %02x\n",(int)temp,len1,len2);
+  // this isn't as recommended in RFC 7858 as it uses three separate write calls
+  result=bufferevent_write(bev,&len1,1);
+  // if (result==0) printf ("written %i to buffer\n",(int)len1);
+  result=bufferevent_write(bev,&len2,1);
+  // if (result==0) printf ("written %i to buffer\n",(int)len2);
+  result=bufferevent_write(bev,response,response_len);
+  // if (result==0) printf ("written %i to buffer\n",(int)response_len);
+  result=bufferevent_flush(bev,EV_WRITE,BEV_FLUSH);
+  // if (result==1) printf ("flushed buffer\n");
+  return response_len;
 }
 
 
@@ -142,8 +174,10 @@ ssl_dnsovertls_echo_readcb(struct bufferevent * bev, void * arg)
     // get the pointer to the client state information
     // this is probably not good practice but it's a result of mixing C and C++
     // In this code there's no reason for C++ so maybe switch the whole project back to C
-    client_t *client = static_cast<client_t *>(arg);
-    dm_query_t *dm_query; // the user data passed to the worker thread
+    //client_t *client = static_cast<client_t *>(arg);
+    client_t *client = arg;
+    struct ssl_client *p_ssl_client=client->p_ssl_client;
+    //dm_query_t *dm_query; // the user data passed to the worker thread
 
     /* Working cert checking. Has to be in read cb. Not accept cb*/
 /*
@@ -161,20 +195,20 @@ ssl_dnsovertls_echo_readcb(struct bufferevent * bev, void * arg)
 
 
     // waiting 1st char of DNS over SSL = msb length
-    if (octets_available>0 && client->status==DNSOVERTLS_WAITING_LEN1) {
-        octets_read=evbuffer_remove(in,&client->len1,1);
+    if (octets_available>0 && p_ssl_client->status==DNSOVERTLS_WAITING_LEN1) {
+        octets_read=evbuffer_remove(in,&p_ssl_client->len1,1);
         if (octets_read!=1) {
             printf("Error. Read %zu octets. Expected 1.\n",octets_read);
             return;
         }
         octets_available--;
-        client->status=DNSOVERTLS_WAITING_LEN2;
-        printf("Received %zu octet. Set len1 to %u.\n",octets_read,(unsigned int)client->len1);
+        p_ssl_client->status=DNSOVERTLS_WAITING_LEN2;
+        printf("Received %zu octet. Set len1 to %u.\n",octets_read,(unsigned int)p_ssl_client->len1);
     }
     
     // waiting 2nd char of DNS over SSL = lsb length
-    if (octets_available>0 && client->status==DNSOVERTLS_WAITING_LEN2) {
-        octets_read=evbuffer_remove(in,&client->len2,1);
+    if (octets_available>0 && p_ssl_client->status==DNSOVERTLS_WAITING_LEN2) {
+        octets_read=evbuffer_remove(in,&p_ssl_client->len2,1);
         if (octets_read!=1) {
             printf("Error. Read %zu octets. Expected 1.\n",octets_read);
             return;
@@ -182,57 +216,67 @@ ssl_dnsovertls_echo_readcb(struct bufferevent * bev, void * arg)
         octets_available--;
 
         // set up a query buffer now we know the expected length
-        client->expected_octets= client->len1 <<8;
-        client->expected_octets+= client->len2;
-            printf("Set expected_octets %zu len1 %zu len2 %zu.\n",client->expected_octets,client->len1,client->len2);
+        p_ssl_client->expected_octets= p_ssl_client->len1 <<8;
+        p_ssl_client->expected_octets+= p_ssl_client->len2;
+            printf("Set expected_octets %zu len1 %d len2 %d.\n",p_ssl_client->expected_octets,(int)p_ssl_client->len1,(int)p_ssl_client->len2);
  
-        client->query=(char*) malloc (client->expected_octets);
-        if (client->query==NULL) {
+        //client->query=(char*) malloc (client->expected_octets);
+	char *p_tmp;
+	p_tmp=realloc(p_ssl_client->query,p_ssl_client->expected_octets);
+        if (p_tmp==NULL) {
             warn ("Failed to allocate space for client query\n");
             return;
         }
-        client->query_len=0;
-        client->status=DNSOVERTLS_WAITING_QUERY;
-        printf("Received %zu octet. Set len2 to %u.\n",octets_read,(unsigned int)client->len2);
+	p_ssl_client->query=p_tmp;
+        p_ssl_client->query_len=0;
+        p_ssl_client->status=DNSOVERTLS_WAITING_QUERY;
+        printf("Received %zu octet. Set len2 to %u.\n",octets_read,(unsigned int)p_ssl_client->len2);
     }
 
     // Read as many expected octets as needed tocomplete the query
-    if (octets_available>0 && client->status==DNSOVERTLS_WAITING_QUERY) {
-        octets_read=evbuffer_remove(in,&client->query[client->query_len],client->expected_octets-client->query_len);
+    if (octets_available>0 && p_ssl_client->status==DNSOVERTLS_WAITING_QUERY) {
+        octets_read=evbuffer_remove(in,&p_ssl_client->query[p_ssl_client->query_len],p_ssl_client->expected_octets-p_ssl_client->query_len);
         if (octets_read<1) {
-            printf("Error. Read %zu octets. Expected %zu.\n",octets_read,client->expected_octets-client->query_len);
+            printf("Error. Read %zu octets. Expected %zu.\n",octets_read,p_ssl_client->expected_octets-p_ssl_client->query_len);
             return;
         }
         octets_available-=octets_read;
-        client->query_len+=octets_read;
+        p_ssl_client->query_len+=octets_read;
 
-        printf("query_len %zu Expected %zu Read %zu left over %zu.\n",client->query_len,client->expected_octets,octets_read,octets_available);
+        printf("query_len %zu Expected %zu Read %zu left over %zu.\n",p_ssl_client->query_len,p_ssl_client->expected_octets,octets_read,octets_available);
     }
 
     // do we have a query ready for dispatch?
 
-    if (client->status==DNSOVERTLS_WAITING_QUERY && client->expected_octets==client->query_len) {
+    if (p_ssl_client->status==DNSOVERTLS_WAITING_QUERY && p_ssl_client->expected_octets==p_ssl_client->query_len) {
         printf("Query ready for dispatch\n");
         /* Create a dm_query object. */
-        if ((dm_query= (dm_query_t *) malloc(sizeof(*dm_query))) == NULL) {
-          warn("failed to allocate memory for dm_query state");
-          return;
-        }
-        memset(dm_query, 0, sizeof(*dm_query));
+     //   if ((dm_query= (dm_query_t *) malloc(sizeof(*dm_query))) == NULL) {
+     //     warn("failed to allocate memory for dm_query state");
+     //     return;
+     //   }
+     //   memset(dm_query, 0, sizeof(*dm_query));
 
-        dm_query->bev=client->bev;
-        dm_query->query=client->query;
-        dm_query->len=client->query_len;
-        dm_query->ssl=client->ssl;
+     //   dm_query->bev=client->bev;
+     //   dm_query->query=client->query;
+     //   dm_query->query_len=client->query_len;
+     //   dm_query->ssl=client->ssl;
+//	dm_query->packet_write=dnsovertls_write;   //  callback to send a packet
+//	set up callback
+	p_ssl_client->bev=client->bev;
+	p_ssl_client->packet_write=dnsovertls_write; //  callback to send a packet
+
         //bufferevent_write(bev,client->query,client->query_len);
-        client->query=NULL; // the query memory has to be freed by the worked
+        //client->query=NULL; // the query memory has to be freed by the worked
         // at the moment process everything in one thread
         // but this prepares us for the future
-        dm_worker(dm_query);
-        ssl_dnsovertls_reset(client);
+        //dm_worker(dm_query);
+        dm_worker(p_ssl_client);
+	//dm_query_free (dm_query); // free up the memory of the inbound query
+        ssl_dnsovertls_reset(p_ssl_client);
     }
 
-    printf("Status %i\n", client->status);
+    printf("Status %i\n", p_ssl_client->status);
     
 //    printf("Received %zu bytes\n", evbuffer_get_length(in));
 //    printf("----- data ----\n");
@@ -240,6 +284,9 @@ ssl_dnsovertls_echo_readcb(struct bufferevent * bev, void * arg)
 
 //    bufferevent_write_buffer(bev, in);
 }
+
+
+
 
 static void
 ssl_readcb(struct bufferevent * bev, void * arg)
@@ -262,9 +309,7 @@ ssl_acceptcb(struct evconnlistener *serv, int sock, struct sockaddr *sa,
     SSL_CTX *server_ctx;
     SSL *client_ssl;
     client_t *client;
-
-    server_ctx = (SSL_CTX *)arg;
-    client_ssl = SSL_new(server_ctx);
+    struct ssl_client *p_ssl_client;
 
     /* Create a client object. */
     if ((client = (client_t *) malloc(sizeof(*client))) == NULL) {
@@ -274,11 +319,25 @@ ssl_acceptcb(struct evconnlistener *serv, int sock, struct sockaddr *sa,
     }
 	memset(client, 0, sizeof(*client));
 
-    client->ssl=client_ssl;
+    // now the extra SSL portion
+   if ((p_ssl_client = (struct ssl_client *) malloc(sizeof(*p_ssl_client))) == NULL) {
+        die("failed to allocate memory for SSL client state");
+    }
+    memset(p_ssl_client, 0, sizeof(*p_ssl_client));
+
+    server_ctx = (SSL_CTX *)arg;
+    client_ssl = SSL_new(server_ctx);
+    client->ssl=client_ssl; // original ssl in this code
+    p_ssl_client->ssl=client_ssl;
+    client->p_ssl_client=p_ssl_client; // extra for new struct
+
+    //dnsovertls_reset(client->p_ssl_client);
+
     client->sock=sock;
     client->sa=sa;
     client->sa_len=sa_len;
-    ssl_dnsovertls_reset(client);
+    printf ("Before reset\n");
+    ssl_dnsovertls_reset(client->p_ssl_client);
 
     client->evbase = evbase = evconnlistener_get_base(serv);
 
@@ -335,7 +394,7 @@ int run_server(void)
 
     sin6.sin6_family = AF_INET6;
     sin6.sin6_flowinfo = 0;
-    sin6.sin6_port = htons(4433);
+    sin6.sin6_port = htons(443);
     //inet_pton(AF_INET6, ipv6_address, &sin6.sin6_addr);
     sin6.sin6_addr = in6addr_any;
 
@@ -343,17 +402,13 @@ int run_server(void)
     event_init();
 
     /* Initialize the OpenSSL library */
-    // ctx = evssl_init();
-    init_openssl();
+    //ctx = evssl_init();
+    //init_openssl();
+    //
     ctx = create_server_context();
     configure_server_context(ctx);
 
-    if (ctx == NULL) {
-        perror("Couldn't create opensll CTX: ");
-        return 1;
-    }
-
-    /* Set signal handlers */
+    // Set signal handlers
     sigset_t sigset;
     sigemptyset(&sigset);
     struct sigaction siginfo;
@@ -391,6 +446,19 @@ int run_server(void)
     evconnlistener_free(listener);
     event_base_free(evbase_accept); 
     SSL_CTX_free(ctx);
+    /*if (client->p_ssl_client->query != NULL ) {
+      free(client->p_ssl_client->query);
+      client->p_ssl_client=NULL;
+    }
+    if (client->p_ssl_client != NULL ) {
+      free(client->p_ssl_client);
+      client->p_ssl_client=NULL;
+    }
+    if (client != NULL ) {
+      free(client);
+      client=NULL;
+    }
+    */
 
     printf("Server shutdown.\n");
 
