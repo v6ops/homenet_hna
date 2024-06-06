@@ -1,14 +1,13 @@
 Install the ldns lib
 https://nlnetlabs.nl/projects/ldns/download/
 
-mkdir ldns
+git clone https://github.com/NLnetLabs/ldns.git
 cd ldns
-curl -o ldns.tar.gz https://nlnetlabs.nl/downloads/ldns/ldns-1.8.3.tar.gz
-gzip -d ldns.tar.gz 
-tar xvf ./ldns.tar 
-autoreconf
-libtool
-./configure 
+git submodule update --init
+libtoolize -ci
+autoreconf -fi
+./configure
+make
 sudo make install
 
 Install json lib
@@ -19,13 +18,14 @@ sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
 
 Build the GNU build system
 cd ~/homenet_hna
-libtoolize
 aclocal
-autoconf --add-missing
+libtoolize -ci
+autoreconf -fi
+
 autoheader
 automake -a
 
-autoreconf
+
 
 compile the code using configure and Make
 ./configure
