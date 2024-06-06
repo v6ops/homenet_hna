@@ -10,11 +10,21 @@ autoreconf -fi
 make
 sudo make install
 
-Install json lib
-git clone https://github.com/nlohmann/json
-cd json
-sudo mkdir -p /usr/local/include/nlohmann
-sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
+# no longer required
+#Install json lib
+#git clone https://github.com/nlohmann/json
+#cd json
+#sudo mkdir -p /usr/local/include/nlohmann
+#sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
+
+for Ubunutu
+apt install libssl-dev
+apt install libjansson-dev
+apt install libevent-dev
+apt install autoconf
+apt install libtool
+apt install libtool-bin
+apt install make 
 
 Build the GNU build system
 cd ~/homenet_hna
