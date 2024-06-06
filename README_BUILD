@@ -21,9 +21,10 @@ Build the GNU build system
 cd ~/homenet_hna
 libtoolize
 aclocal
-autoconf
+autoconf --add-missing
 autoheader
 automake -a
+
 autoreconf
 
 compile the code using configure and Make
