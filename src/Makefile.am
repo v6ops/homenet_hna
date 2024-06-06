@@ -1,7 +1,7 @@
 AUTOMAKE_OPTIONS = subdir-objects
 ACLOCAL_AMFLAGS = $(ACLOCAL_FLAGS)
 AM_CXXFLAGS = -fPIC -Wall -Wextra
-AM_CXXFLAGS += -I/usr/local/include -I$(top_builddir)/thirdparty/nlohmann_json/single_include
+AM_CXXFLAGS += -I/usr/local/include 
 AM_LDFLAGS = -L/usr/local/lib
 #bin_PROGRAMS = homenet_dm homenet_hna libevent_dm
 #homenet_dm_SOURCES = homenet_dm.cpp

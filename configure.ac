@@ -5,7 +5,7 @@ AC_PREREQ([2.69])
 AC_INIT([homenet_dm], [1.0])
 
 # Check for C compiler
-AC_PROG_CXX
+#AC_PROG_CXX
 AC_PROG_CC
 AM_PROG_AR
 AC_PROG_AWK
@@ -47,11 +47,11 @@ AC_CHECK_HEADERS(jansson_config.h  jansson.h)
 AC_CHECK_LIB([jansson], [main], [], [echo "jansson JSON library not found.  Please install jansson library before proceeding"; exit -1])
 # this is bad but the check header doesn't seem to work with .hpp
 AC_CHECK_LIB([pthread], [main], [], [echo "libpthread library not found.  Please install libpthread library before proceeding"; exit -1])
-AC_CHECK_FILE(
-    /usr/local/include/nlohmann/json.hpp,
-    [],
-    [AC_MSG_ERROR([Could not find nlohmann/json.hpp])]
-)
+#AC_CHECK_FILE(
+#    /usr/local/include/nlohmann/json.hpp,
+#    [],
+#    [AC_MSG_ERROR([Could not find nlohmann/json.hpp])]
+#)
 AX_CXX_COMPILE_STDCXX_11
 #AC_CHECK_HEADER(
 #    "nlohmann/json.hpp",
@@ -86,7 +86,7 @@ AC_TYPE_UINT8_T
 AC_CHECK_FUNCS([memset select socket strerror])
 
 # Safety checks in case user overwritten --srcdir
-AC_CONFIG_SRCDIR([src/homenet_dm.cpp])
+AC_CONFIG_SRCDIR([src-dm/homenet_dm.c])
 
 # Store the auxiliary build tools (e.g., install-sh, config.sub, config.guess)
 # in this dir (build-aux)
