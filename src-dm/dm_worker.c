@@ -1,6 +1,6 @@
-/* dm_worker.cpp the worker callback functions that handle the DNS queries
+/* dm_worker.c the worker callback functions that handle the DNS queries
 
-* Copyright (c) 2019-2020 Ray Hunter
+* Copyright (c) 2019-2025 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -72,6 +72,9 @@ int dm_worker(struct ssl_client *p_ssl_client)
   ldns_rdf *origin = NULL;
   ldns_str2rdf_dname(&origin, "homenetdns.com");
   char buf[80];
+
+  struct timeval rx; // arrival time of the packet
+  gettimeofday(&rx,NULL);
 
   /* zone */
   const char *zone_file="../tests/testdata/fwd.homenetdns.com.db";
@@ -212,14 +215,13 @@ int dm_worker(struct ssl_client *p_ssl_client)
         sprintf(buf, "incoming AXFR\n");
         printf("%s",buf);
         response_pkt =  ldns_helpers_axfr_response_new(query_pkt);
+	ldns_helpers_pkt_set_times(response_pkt,&rx,NULL);
         sprintf(buf, "Created AXFR\n");
         printf("%s",buf);
         ldns_helpers_pkt_free(query_pkt);  
         printf( "Freed query\n");
         printf( "Sending AXFR\n");
         ldns_pkt_print(stdout, response_pkt);
-	// ssl_helpers_pkt2bio(response_pkt,sbio);
-	// ssl_dnsovertls_pkt2bev(dm_query->bev, response_pkt);
 	write_ldns_pkt_to_wire(p_ssl_client, response_pkt);
         ldns_helpers_pkt_free(response_pkt);
         printf( "Sent AXFR\n");
@@ -227,6 +229,8 @@ int dm_worker(struct ssl_client *p_ssl_client)
         printf( "Done axfr\n");
 
       } else {
+        sprintf(buf, "incoming other query\n");
+        printf("%s",buf);
         response_qr = ldns_rr_list_new();
         ldns_rr_list_push_rr(response_qr, ldns_rr_clone(query_question_rr));
 
@@ -239,6 +243,7 @@ int dm_worker(struct ssl_client *p_ssl_client)
         ldns_pkt_set_qr(response_pkt, 1);
         ldns_pkt_set_aa(response_pkt, 1);
         ldns_pkt_set_id(response_pkt, ldns_pkt_id(query_pkt));
+	ldns_helpers_pkt_set_times(response_pkt,&rx,NULL);
 
         ldns_pkt_push_rr_list(response_pkt, LDNS_SECTION_QUESTION, response_qr);
         ldns_pkt_push_rr_list(response_pkt, LDNS_SECTION_ANSWER, response_an);

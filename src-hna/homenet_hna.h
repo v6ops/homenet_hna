@@ -20,6 +20,8 @@
 #include "../lib/knot_helpers.h"
 #include "../lib/ssl_helpers.h"
 
+#include "./get_cli_opt.h"
+
 #define DEFAULT_DM_CTRL "dm.homenetdns.com"
 #define DEFAULT_DM_PORT "433"
 #define DEFAULT_DM_ACL "::1/64"

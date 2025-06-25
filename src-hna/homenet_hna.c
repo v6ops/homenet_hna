@@ -28,14 +28,27 @@
 //#include <nlohmann/json.hpp>
 //using json = nlohmann::json;
 #include <jansson.h>
+// reading CLI options
+#include "./get_cli_opt.h"
 
 void handleFailure(void) {
 	ERR_print_errors_fp(stderr);
 	exit(1);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
+
+  // read CLI options
+  CLI_OPT cli_opt;
+  int opt_error=0;
+  opt_error=get_cli_opt(argc,argv,&cli_opt);
+  if (opt_error !=0)
+  {
+	  printf("usage %s -a -b -c 1 -d 4 -e 5 -f\n",argv[0]);
+	  exit(EXIT_FAILURE);
+  }
+
   // ssl session
   SSL_CTX* ctx = NULL;
   BIO *web = NULL, *out = NULL;
@@ -94,55 +107,10 @@ int main(int argc, char **argv)
   ldns_pkt *notify;
   ldns_pkt *axfr_pkt;
   ldns_pkt *ns_pkt;
+  ldns_pkt *ptr_pkt;
   ldns_pkt *response_pkt;
   ldns_zone *z;
   char buf[80];
-
-/*
-  std::string dm_ctrl=DEFAULT_DM_CTRL;
-  std::string dm_notify=DEFAULT_DM_NOTIFY;
-  std::string dm_acl=DEFAULT_DM_ACL;
-  std::string dm_port=DEFAULT_DM_PORT;
-  std::string zone=DEFAULT_ZONE;
-  std::string hna_listen=DEFAULT_HNA_LISTEN;
-  std::string hna_certificate=DEFAULT_HNA_CERTIFICATE;
-  std::string hna_key=DEFAULT_HNA_KEY;
-  // config
-  json config_hna_client;
-  json config_hna_server;
-
-  // ldns and wire packets
-  ldns_pkt *notify;
-  ldns_pkt *axfr_pkt;
-  ldns_pkt *ns_pkt;
-  ldns_pkt *response_pkt;
-  ldns_zone *z;
-  char buf[80];
-
-  std::cout << "Main Starting\n" << std::flush;
-  // start read config
-  std::ifstream config_file_server("./homenet_hna_server_config.json", std::ifstream::in);
-  config_file_server >> config_hna_server;
-  std::ifstream config_file_client("./homenet_hna_client_config.json", std::ifstream::in);
-  config_file_client >> config_hna_client;
-
-  std::cout << "Read Config\n" << std::flush;
-  std::cout << config_hna_client.dump(4) << std::endl;
-  std::cout << config_hna_server.dump(4) << std::endl;
-
-  // set up the hna client to DM connection via SSL
-  if ( !(config_hna_client["dm_ctrl"].is_null()) ) dm_ctrl=config_hna_client["dm_ctrl"];
-  if ( !(config_hna_client["dm_port"].is_null()) ) dm_port=config_hna_client["dm_port"];
-  if ( !(config_hna_client["zone"].is_null()) )    zone=config_hna_client["zone"];
-  if ( !(config_hna_client["dm_acl"].is_null()) )  dm_acl=config_hna_client["dm_acl"];
-  if ( !(config_hna_client["dm_notify"].is_null()) )    dm_notify=config_hna_client["dm_notify"];
-  if ( !(config_hna_client["hna_certificate"].is_null()) )    hna_certificate=config_hna_client["hna_certificate"];
-  if ( !(config_hna_client["hna_key"].is_null()) )    hna_key=config_hna_client["hna_key"];
-
-
-  if ( !(config_hna_server["hna_listen"].is_null()) )    hna_listen=config_hna_server["hna_listen"];
-  // end read config
-  */
 
   // start config ssl
   init_openssl();
@@ -210,8 +178,37 @@ int main(int argc, char **argv)
   /* An exercise left to the reader */
 
   // end connect ssl
+  //
+  //
+  //
+  /* start Query PTR */
+  if (cli_opt.domain_only ==1) // get a new domain, print it and exit
+  {
+    BIO_puts(out,"Creating PTR\n");
+    ptr_pkt=ldns_helpers_ptr_query("_domain-s._tcp._solicit.homenetdns.com");
+    BIO_puts(out,"Created PTR\n");
+    ldns_pkt_print(stdout,ptr_pkt);
+    BIO_puts(out,"Printed PTR\n");
+    ssl_helpers_pkt2bio(ptr_pkt,web);
+    ldns_pkt_free(ptr_pkt);
+
+    BIO_puts(out,"Waiting PTR response\n");
+
+    if ( (response_pkt=ssl_helpers_bio2pkt(web)) ) {
+      ldns_pkt_print(stdout, response_pkt);
+      ldns_pkt_free(response_pkt);
+    }
+
+    exit(EXIT_SUCCESS);
+  }
+
+  /* end Query PTR */
+
+
+
 
   // fetch soa for our zone from the DM
+  /* start AXFR */
   BIO_puts(out,"Creating AXFR\n");
   axfr_pkt=ldns_helpers_axfr_query_new(zone);
   BIO_puts(out,"Created AXFR\n");
@@ -318,79 +315,6 @@ int main(int argc, char **argv)
 
   /* end Query NS */
 
-	/* utils */
-/*
-	char testbuf[ldns_helpers_max_buffer_size]="\0";
-	char testresult[ldns_helpers_max_buffer_size]="\0";
-
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf(" strip :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf("strip :%s:\n",testbuf);
-	strcpy(testbuf,".\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf(" strip :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf("strip :%s:\n",testbuf);
-	strcpy(testbuf,"a");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf(" strip :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf("strip :%s:\n",testbuf);
-	strcat(testbuf,".com");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_add_trailing_dot(testbuf);
-	printf(" add :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf(" strip :%s:",testbuf);
-	ldns_helpers_strip_trailing_dot(testbuf);
-	printf("strip :%s:\n",testbuf);
-	strcpy(testbuf,"\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,".\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,"a.\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,"a.com\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,"a.com.\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,"hna.homenetdns.com\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-	strcpy(testbuf,"hna.homenetdns.com.\0");
-	printf("Testbuf %s ",testbuf);
-	ldns_helpers_parent_domain(testbuf,testresult);
-	printf(" parent :%s:\n",testresult);
-  */
 
 
   /* loop and print replies

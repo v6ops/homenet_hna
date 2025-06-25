@@ -5,6 +5,8 @@
 //#include <iostream>
 #include <unistd.h>
 #include <string.h>
+#include <sys/time.h>
+
 // #include "../lib/ssl_session.h"
 #include "../lib/ldns_helpers.h"
 #include "../lib/ssl_helpers.h"

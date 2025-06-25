@@ -1,6 +1,6 @@
 /* ldns_helper.h
 
-* Copyright (c) 2019-2024 Ray Hunter
+* Copyright (c) 2019-2025 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -41,6 +41,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include "knot_helpers.h"
+#include <sys/time.h>
 
 //const int ldns_helpers_max_retry_count = 5; // try 3 times
 //const int ldns_helpers_timeout_retry   = 2; // 2 seconds per try
@@ -55,6 +56,8 @@ ldns_zone * ldns_helpers_load_template (char *filename);
 ldns_zone * ldns_helpers_zone_read(const char * zone_file);
 ldns_zone * ldns_helpers_zone_template_new (char *zone_name);
 
+int timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
+
 void ldns_helpers_notify_via_socket(int s, struct addrinfo* res, uint8_t* wire, size_t wiresize, const char* addrstr);
 
 int ldns_helpers_notify_host(const char *zone_name,char *hostname);
@@ -67,7 +70,9 @@ ldns_pkt  * ldns_helpers_ns_query_new(const char *zone_name) ;
 ldns_rr   * ldns_helpers_soa_rr_new(const char *zone_name) ;
 
 ldns_pkt  * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_string);
-ldns_pkt  * ldns_helpers_ds_update_new(const char *zone_name);
+ldns_pkt  * ldns_helpers_ds_update_new(char *zone_name);
+ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *cname_target);
+ldns_pkt  * ldns_helpers_ptr_query(const char* zone_name);
 
 ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *listen_string);
 int ldns_helpers_rr_list2listen_string(ldns_rr_list *rrl, const char *owner, char *listen_string) ;
@@ -83,6 +88,7 @@ void ldns_helpers_parent_domain(const char *domain, char *parent);
 ldns_rr_list * get_rrset(const ldns_zone *zone, const ldns_rdf *owner_name, const ldns_rr_type qtype, const ldns_rr_class qclass);
 
 void ldns_helpers_pkt_free(ldns_pkt *pkt);
+void ldns_helpers_pkt_set_times(ldns_pkt *pkt, struct timeval *rx, struct timeval *tx);
 void ldns_helpers_zone_free(ldns_zone *z);
 void ldns_helpers_rdf_free(ldns_rdf *rdf);
 void ldns_helpers_rr_list_free(ldns_rr_list *rr_list);

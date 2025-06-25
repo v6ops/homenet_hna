@@ -24,6 +24,32 @@
 */
 #include "ldns_helpers.h"
 
+/* from GNU. Subtract the ‘struct timeval’ values X and Y,
+   storing the result in RESULT.
+   Return 1 if the difference is negative, otherwise 0. */
+
+int
+timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y)
+{
+  /* Perform the carry for the later subtraction by updating y. */
+  if (x->tv_usec < y->tv_usec) {
+    int nsec = (y->tv_usec - x->tv_usec) / 1000000 + 1;
+    y->tv_usec -= 1000000 * nsec;
+    y->tv_sec += nsec;
+  }
+  if (x->tv_usec - y->tv_usec > 1000000) {
+    int nsec = (x->tv_usec - y->tv_usec) / 1000000;
+    y->tv_usec += 1000000 * nsec;
+    y->tv_sec -= nsec;
+  }
+
+  result->tv_sec = x->tv_sec - y->tv_sec;
+  result->tv_usec = x->tv_usec - y->tv_usec;
+
+  /* Return 1 if result is negative. */
+  return x->tv_sec < y->tv_sec;
+}
+
 
 bool print_soa = true;
 
@@ -34,6 +60,35 @@ void ldns_helpers_pkt_free(ldns_pkt *pkt)
     pkt=NULL;
   }
 }
+
+void ldns_helpers_pkt_set_times(ldns_pkt *pkt, struct timeval *rx, struct timeval *tx)
+{
+  struct timeval query_time;
+  struct timeval tv1; // use 2 because subtract changes that value to compute the carry
+  struct timeval tv2;
+  uint64_t intermediate;
+  uint32_t msec;  // query_time is in milliseconds
+  
+  if (rx==NULL) {
+    gettimeofday(&tv1, NULL);
+    rx=&tv1;
+  }
+  if (tx==NULL) {
+    gettimeofday(&tv2, NULL);
+    tx=&tv2;
+  }
+  // ldns lib ldns_pkt_set_timestamp() is pass by value so DIY
+  pkt->timestamp.tv_sec = tx->tv_sec;
+  pkt->timestamp.tv_usec = tx->tv_usec;
+
+  // calculate the query time as delta rx to tx
+  timeval_subtract(&query_time,tx,rx);
+  intermediate=(uint64_t) query_time.tv_sec*1000000+(uint64_t)(query_time.tv_usec);
+  msec=(uint32_t) intermediate/1000;
+  ldns_pkt_set_querytime(pkt,msec);
+
+}
+
 
 void ldns_helpers_zone_free(ldns_zone *z)
 {
@@ -432,6 +487,7 @@ ldns_pkt * ldns_helpers_axfr_query_new(const char *zone_name) {
   ldns_pkt_set_opcode(axfr_query_pkt, LDNS_PACKET_QUERY);
   ldns_pkt_set_id(axfr_query_pkt, random()&0xffff);
   ldns_pkt_push_rr(axfr_query_pkt, LDNS_SECTION_QUESTION, question);
+  ldns_helpers_pkt_set_times(axfr_query_pkt,NULL,NULL);
 
   return axfr_query_pkt;
 }
@@ -490,6 +546,7 @@ ldns_pkt * ldns_helpers_axfr_response_new(ldns_pkt *query_pkt) {
   ldns_pkt_push_rr_list(axfr_response_pkt, LDNS_SECTION_ADDITIONAL, response_ad);
 
   ldns_helpers_zone_free(z);
+  ldns_helpers_pkt_set_times(axfr_response_pkt,NULL,NULL);
 
   return axfr_response_pkt;
 }
@@ -567,6 +624,7 @@ ldns_pkt * ldns_helpers_ns_query_new(const char *zone_name) {
   ldns_pkt_set_opcode(ns_query_pkt, LDNS_PACKET_QUERY);
   ldns_pkt_set_id(ns_query_pkt, random()&0xffff);
   ldns_pkt_push_rr(ns_query_pkt, LDNS_SECTION_QUESTION, question);
+  ldns_helpers_pkt_set_times(ns_query_pkt,NULL,NULL);
 
   return ns_query_pkt;
 }
@@ -1000,13 +1058,14 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
   additional=ldns_helpers_listen_string2rr_list(hna_name,listen_string);
 
   update= ldns_update_pkt_new(ldns_zone_dname, c, prerequisites, updates, additional);
+  ldns_helpers_pkt_set_times(update,NULL,NULL);
   return update;
 }
 
 
 
 // create an update packet for the DS SET
-ldns_pkt * ldns_helpers_ds_update_new(const char *zone_name) {
+ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
   /* LDNS types */
   ldns_pkt *update;
   ldns_rdf *ldns_zone_dname = NULL;
@@ -1064,6 +1123,97 @@ ldns_pkt * ldns_helpers_ds_update_new(const char *zone_name) {
   ldns_str2rdf_dname(&ldns_zone_dname ,parent);
 
   update= ldns_update_pkt_new(ldns_zone_dname, c, prerequisites, updates, additional);
+  // set QD to one question (the zone to update)
+  ldns_pkt_set_qdcount(update,1);
+  // set NS to one update (the RR to update)
+  ldns_pkt_set_nscount(update,1);
+  // Set random ID for the query
+  ldns_pkt_set_random_id(update);
+  // Clear RD (Recursion Desired) flag
+  ldns_pkt_set_rd(update, false);
+  // Clear QR (Question Response) flag
+  ldns_pkt_set_qr(update, false);
+  ldns_helpers_pkt_set_times(update,NULL,NULL);
   return update;
+}
+
+// create an update packet from the zone name and the RR to be update (in string fomrat)
+ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *new_rr_str) {
+  /* LDNS types */
+  ldns_pkt *update;
+  ldns_rdf *ldns_zone_dname = NULL;
+  ldns_rr_list *prerequisites=ldns_rr_list_new();
+  ldns_rr *ns_rr;
+  ldns_rr_list *updates=ldns_rr_list_new();
+  ldns_rr_list *additional =ldns_rr_list_new();
+  ldns_rr_class c = LDNS_RR_CLASS_IN;
+  ldns_status status=LDNS_STATUS_OK;
+
+  char parent[ldns_helpers_max_buffer_size];
+  for (int i=0; i<ldns_helpers_max_buffer_size; i++) {parent[i]='\0';}
+
+  printf( "updating RR %s\n",new_rr_str);
+
+  ldns_rr_new_frm_str(&ns_rr,new_rr_str, 0, NULL, NULL);
+  updates=ldns_rr_list_new();
+  ldns_rr_list_push_rr(updates, ns_rr);
+
+  ldns_helpers_parent_domain(zone_name,parent);
+  ldns_str2rdf_dname(&ldns_zone_dname ,parent);
+
+  //additional=ldns_helpers_listen_string2rr_list(hna_name,listen_string);
+
+  update= ldns_update_pkt_new(ldns_zone_dname, c, prerequisites, updates, additional);
+  // set QD to one question (the zone to update)
+  ldns_pkt_set_qdcount(update,1);
+  // set NS to one update (the RR to update)
+  ldns_pkt_set_nscount(update,1);
+  // Set random ID for the query
+  ldns_pkt_set_random_id(update);
+  // Clear RD (Recursion Desired) flag
+  ldns_pkt_set_rd(update, false);
+  // Clear QR (Question Response) flag
+  ldns_pkt_set_qr(update, false);
+  ldns_helpers_pkt_set_times(update,NULL,NULL);
+  return update;
+}
+
+
+/**
+ * Creates an LDNS query packet for a PTR record
+ * @param zone The zone name to query (e.g., "example.com")
+ * @return Pointer to ldns_pkt query packet, or NULL on failure
+ */
+ldns_pkt* ldns_helpers_ptr_query(const char* zone_name) {
+  /* LDNS types */
+  ldns_pkt *ptr_query_pkt;
+  ldns_rr *question;
+  ldns_rdf *ldns_zone_name = NULL;
+
+  srandom(time(NULL) ^ getpid());
+
+  ldns_zone_name = ldns_dname_new_frm_str(zone_name);
+  if(!ldns_zone_name) {
+    printf("cannot parse zone name: %s\n",zone_name);
+    return NULL;
+  }
+
+  ptr_query_pkt = ldns_pkt_new();
+  question = ldns_rr_new();
+
+  /* create the rr for inside the pkt */
+  ldns_rr_set_class(question, LDNS_RR_CLASS_IN);
+  ldns_rr_set_owner(question, ldns_zone_name);
+  ldns_rr_set_type(question, LDNS_RR_TYPE_PTR);
+  ldns_pkt_set_opcode(ptr_query_pkt, LDNS_PACKET_QUERY);
+  // Set random ID for the query
+  ldns_pkt_set_random_id(ptr_query_pkt);
+  // Clear RD (Recursion Desired) flag
+  ldns_pkt_set_rd(ptr_query_pkt, false);
+  ldns_helpers_pkt_set_times(ptr_query_pkt,NULL,NULL);
+
+  ldns_pkt_push_rr(ptr_query_pkt, LDNS_SECTION_QUESTION, question);
+
+  return ptr_query_pkt;
 }
 
