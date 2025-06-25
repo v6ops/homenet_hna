@@ -1,6 +1,10 @@
 1. Prerequisites
 ================
 
+1.0 MYSQL
+---------
+sudo apt-get install libmysqlclient-dev 
+
 1.1 LDNS
 --------
 
@@ -19,29 +23,6 @@ tar xvf ./ldns.tar
 autoreconf -fi
 ./configure 
 sudo make install
-
-1.2 JSON
---------
-The client makes use of the Jansson JSON library for config parsing.
-
-Source can be obtained from https://github.com/akheron/jansson
-
-Installation should be performed before building and is something like:
-
-cd ~
-git clone https://github.com/akheron/jansson
-cd jansson
-autoreconf -fi
-
-./configure
-make
-make check
-sudo make install
-Install json lib
-git clone https://github.com/nlohmann/json
-cd json
-sudo mkdir -p /usr/local/include/nlohmann
-sudo cp ./single_include/nlohmann/json.hpp /usr/local/include/nlohmann
 
 2. Make the code
 ================
