@@ -1,6 +1,6 @@
-/* homenet_hna ldns_helpers.cpp
+/* homenet_hna ldns_helpers.c
 
-* Copyright (c) 2019 Ray Hunter
+* Copyright (c) 2019-2025 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -87,6 +87,23 @@ void ldns_helpers_pkt_set_times(ldns_pkt *pkt, struct timeval *rx, struct timeva
   msec=(uint32_t) intermediate/1000;
   ldns_pkt_set_querytime(pkt,msec);
 
+}
+
+ldns_pkt* ldns_helpers_pkt_error(ldns_pkt *query_pkt, ldns_pkt_rcode rcode)
+{
+  ldns_pkt *error_pkt;
+
+  error_pkt=ldns_pkt_clone (query_pkt); // clone the query so client knows what we are replying to
+
+  if(!error_pkt) {
+    fprintf(stderr, "ldns_helpers_pkt_error: Unable to clone packet\n");
+    return NULL;
+  }
+
+  ldns_pkt_set_rcode(error_pkt, rcode); // set the rcode to send back to the client
+  ldns_helpers_pkt_set_times(error_pkt,NULL,NULL);
+
+  return error_pkt;
 }
 
 

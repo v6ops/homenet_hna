@@ -62,6 +62,9 @@ void ldns_helpers_notify_via_socket(int s, struct addrinfo* res, uint8_t* wire, 
 
 int ldns_helpers_notify_host(const char *zone_name,char *hostname);
 
+// clone a query packet and return an error reply
+ldns_pkt  * ldns_helpers_pkt_error(ldns_pkt *query_pkt, ldns_pkt_rcode rcode) ;
+
 ldns_pkt  * ldns_helpers_notify_new(const char *zone_name) ;
 ldns_pkt  * ldns_helpers_axfr_query_new(const char *zone_name) ;
 ldns_pkt  * ldns_helpers_axfr_response_new(ldns_pkt *query_pkt) ;

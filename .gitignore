@@ -48,3 +48,11 @@ autom4te.cache/**
 /src-dm/libevent_dm
 
 /src-hna/homenethna
+
+config.h.in~
+configure~
+src-dm/homenet_tofu
+src-dm/libevent_tofu
+src-dm/makezone
+src-dm/t.txt
+src-dm/tofu_test

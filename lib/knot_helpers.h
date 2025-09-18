@@ -32,6 +32,8 @@
 #define MAKE_KNOT_DM_DS "/usr/local/etc/knot-dm/make_new_ds.bash"
 #define MAKE_KNOT_DM_CONFIG "/usr/local/etc/knot-dm/make_knot_dm_config.bash"
 #define KNOT_MAX_FILENAME_LEN 250
+#define MAKE_KNOT_TXT "/usr/local/etc/knot-dm/make_new_txt.bash"
+#define DELETE_KNOT_TXT "/usr/local/etc/knot-dm/delete_txt.bash"
 
 
 #include <stdio.h>
@@ -43,9 +45,16 @@
 #include <string.h>
 
 int fork_make_knot_config(char *zone, char *dm_notify, char *dm_acl);
+
+// Generate DS record (all digest algorithms together) for specified zone.
 int fork_make_knot_ds(char *zone,char *ds_filename);
 
 int fork_make_knot_dm_ds(char *ds_rr);
 int fork_make_knot_dm_config(char *zone, char *dm_remote);
+
+// Set TXT record for specified zone. Used for ACME challenge
+int fork_make_knot_txt(char *zone,char *txt);
+// Unset (delete) TXT record for specified zone. Used after ACME challenge
+int fork_delete_knot_txt(char *zone,char *txt);
 
 #endif

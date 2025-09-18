@@ -59,6 +59,34 @@ void do_sha256(char *buf, size_t buf_len, unsigned char *md) {
   putchar('\n');
 }
 
+void do_EVP(const unsigned char *message, size_t message_len, unsigned char *digest)
+{
+	EVP_MD_CTX *mdctx;
+	unsigned int d_max=SHA256_DIGEST_LENGTH;
+	unsigned int *digest_len=&d_max;
+
+	if((mdctx = EVP_MD_CTX_new()) == NULL)
+		printf("Can't create openssl context\n");
+
+	if(1 != EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL))
+		printf("Can't init openssl context\n");
+
+	if(1 != EVP_DigestUpdate(mdctx, message, message_len))
+		printf("Can't digest message\n");
+
+	//if((*digest = (unsigned char *)OPENSSL_malloc(EVP_MD_size(EVP_sha256()))) == NULL)
+//		printf("Can't malloc digest result\n");
+
+	if(1 != EVP_DigestFinal_ex(mdctx, digest, digest_len))
+		printf("Can't finalise digest\n");
+
+	EVP_MD_CTX_free(mdctx);
+  // output the result
+  for (int len = 0; len < SHA256_DIGEST_LENGTH; ++len)
+    printf("%02x", digest[len]);
+  putchar('\n');
+}
+
 // Initialise a dictionary of words to use as tokens
 // feel free to use your own language/ words
 // the pointer should have storage for 1024 words and 8 chars
@@ -110,6 +138,7 @@ char *make_zone_name (unsigned long seed, int nwords) {
   // hard to guess zone names if people are abusive,
   // provided the seed is good.
   do_sha256(buf,strlen(buf),md);
+  do_EVP(buf,strlen(buf),md);
 
   int i=0;
   while (i<nwords) { // passphrase length
@@ -160,7 +189,7 @@ void create_zone_names(char *parent, int nzones){
   mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str));
 
   int i=0;
-  int collisions=0; // track failed inserts (asssum due to name collissions)
+  int collisions=0; // track failed inserts (asssume due to name collisions)
   while(i<nzones) {
     i++;
     zn=make_zone_name(slot+i+OFFSET,4);
@@ -187,17 +216,21 @@ void create_zone_names(char *parent, int nzones){
     bind[2].length= 0;
 
     mysql_stmt_bind_param(stmt, bind);
+
     if (mysql_stmt_execute(stmt)) {
-      fprintf(stderr, " mysql_stmt_execute(), 1 failed\n");
-      fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
-      exit(0);
+      // ignore errors on duplicates row entries = name collision
+      if(mysql_stmt_errno(stmt)!=1062) {
+        fprintf(stderr, " mysql_stmt_execute(), 1 failed\n");
+        fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+        exit(0);
+      }
     }
     uint64_t affected_rows;
     affected_rows= mysql_stmt_affected_rows(stmt);
 
     if (affected_rows != 1) { /* expect 1  affected row per insert*/
       collisions++;
-      if (collisions >100) {
+      if (collisions >10000) {
        fprintf(stderr, " Too many collissions on zone creation\n");
        exit(0);
       }
@@ -424,7 +457,7 @@ char* assign_zone_name(char *parent, char *ipv4, char *ipv6){
   // create an HNA entry in infra
   printf("Create HNA\n");
   stmt=mysql_stmt_init(db);
-  stmt_str="INSERT INTO infra (name,created,assigned,ipv4,ipv6,function) VALUES (?,?,?,?,?,'hna')";
+  stmt_str="INSERT INTO infra (name,created,assigned,ipv4,ipv6,node_type) VALUES (?,?,?,?,?,'hna')";
   mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str));
   memset(buf,'\0',sizeof(buf));
   snprintf(buf,MYSQL_STRLEN,"%s%s","hna-",name); // concat with max MYSQL_STRLEN char
@@ -620,6 +653,7 @@ int main (void) {
   printf("Starting\n");
   printf("following test vectors have been checked against\n");
   printf("https://emn178.github.io/online-tools/sha256.html\n");
+  printf("do_sha256\n");
   do_sha256("a",1,buffer);
   printf("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\n");
   do_sha256("abcdefghijklm",13,buffer);
@@ -629,6 +663,17 @@ int main (void) {
   do_sha256("0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",130,buffer);
   printf("426f26da928927a3520b61ade620dc7c69ed4d315425929fa04d9a993a22a0f3\n");
   do_sha256("0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789abcdefghijklmnopqrstuvwxyz",156,buffer);
+  printf("0275e32522a6de59f7e8df16c53b2d39dbf940c5e07940f4ad4c5e9406d4a8f3\n");
+  printf("do_EVP\n");
+  do_EVP("a",1,buffer);
+  printf("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb\n");
+  do_EVP("abcdefghijklm",13,buffer);
+  printf("ff10304f1af23606ede1e2d8abcdc94c229047a61458d809d8bbd53ede1f6598\n");
+  do_EVP("0123456789",10,buffer);
+  printf("84d89877f0d4041efb6bf91a16f0248f2fd573e6af05c19f96bedb9f882f7882\n");
+  do_EVP("0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",130,buffer);
+  printf("426f26da928927a3520b61ade620dc7c69ed4d315425929fa04d9a993a22a0f3\n");
+  do_EVP("0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789abcdefghijklmnopqrstuvwxyz",156,buffer);
   printf("0275e32522a6de59f7e8df16c53b2d39dbf940c5e07940f4ad4c5e9406d4a8f3\n");
   // output the result
   int len;
@@ -651,7 +696,24 @@ int main (void) {
   zn=make_zone_name(0,4);
   printf("zn %s\n",zn);
   printf("start db\n");
-  create_zone_names("homenetdns.com",10);
+
+
+  #include <sys/time.h>
+   struct timeval start, end;
+  // start timer.
+  gettimeofday(&start, NULL);
+  create_zone_names("homenetdns.com",1000);
+  gettimeofday(&end, NULL);
+  double time_taken;
+
+  time_taken = (end.tv_sec - start.tv_sec) * 1e6;
+  time_taken = (time_taken + (end.tv_usec -
+                              start.tv_usec)) * 1e-6;
+
+  printf("Time taken by program is %f\n",time_taken);
+
+
+
   assign_zone_name("homenetdns.com","1.2.3.9","2001:abcd::1");
   assign_zone_name("homenetdns.com","1.2.3.9","2001:abcd::1");
   assign_zone_name("homenetdns.com","1.2.3.9","2001:abcd::2");

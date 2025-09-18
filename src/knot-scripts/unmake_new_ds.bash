@@ -10,7 +10,7 @@ echo "Making $1"
 # start a zone transaction in the parent zone homenetdns.com
 knotc zone-begin homenetdns.com
 # set the DS RR we've bene given
-knotc zone-set homenetdns.com $1
+knotc zone-unset homenetdns.com $1
 # commit the change
 knotc zone-commit homenetdns.com
 # flush the zone to disk

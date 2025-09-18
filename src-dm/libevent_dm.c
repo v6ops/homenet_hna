@@ -336,8 +336,30 @@ ssl_acceptcb(struct evconnlistener *serv, int sock, struct sockaddr *sa,
     client->sock=sock;
     client->sa=sa;
     client->sa_len=sa_len;
-    printf ("Before reset\n");
+
     ssl_dnsovertls_reset(client->p_ssl_client);
+
+    // get the address of the remote client in human readable form
+    char human_addr[INET6_ADDRSTRLEN]=""; // blank temp storage for storing human readable client address
+    switch(sa->sa_family) {
+      case AF_INET:
+        inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr), human_addr, INET_ADDRSTRLEN-1);
+        memcpy(client->p_ssl_client->client_addr,human_addr, INET_ADDRSTRLEN-1);
+        client->p_ssl_client->client_addr[INET_ADDRSTRLEN-1] = 0; // ensure termination
+        break;
+
+      case AF_INET6:
+        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr), human_addr, INET6_ADDRSTRLEN-1);
+        memcpy(client->p_ssl_client->client_addr,human_addr, INET6_ADDRSTRLEN-1);
+        client->p_ssl_client->client_addr[INET_ADDRSTRLEN-1] = 0; // ensure termination
+        break;
+
+      default:
+        strncpy(human_addr, "Unknown AF\0", INET6_ADDRSTRLEN-1);
+        memcpy(client->p_ssl_client->client_addr,human_addr, INET6_ADDRSTRLEN-1);
+        break;
+    }
+    printf("client : accepted connection from %s.\n", human_addr);
 
     client->evbase = evbase = evconnlistener_get_base(serv);
 

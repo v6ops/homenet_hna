@@ -1,4 +1,4 @@
-/* dm_worker.c handles the Trust on First Use self-registration
+/* dm_tofu.h handles the Trust on First Use self-registration
 
 * Copyright (c) 2024-2025 Ray Hunter
 
@@ -25,15 +25,279 @@
 #ifndef DM_TOFU_INCLUDED
 #define DM_TOFU_INCLUDED
 
+#define KNOT_EXEC_FILE "home/knot/knotc_exec_file.bash"
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <mysql.h>
+#include <string.h>
+#include <time.h>
 
+// for background thread
+#include <pthread.h>
+#include <unistd.h>
+
+#include "db.h"
+#include <ldns/ldns.h>
 #include "../lib/ldns_helpers.h"
 #include "../lib/ssl_helpers.h"
 #include "../lib/workqueue.h"
+#include "ssl_client.h"
 
-dm_tofu_solicit(
+// sha256_Final function is decprecated in openssl, so use EVP instead.
+// #include <openssl/sha.h>
+#include <openssl/evp.h>
+
+// TOFU works by pre-provisioning a fixed number of zones to be claimed during a timeslot
+// this limits the maximum work on the server and mitigates DoS attacks or resource exhaustion
+//
+//
+/* zone state lifecycle DM perspective */
+/*******************************************************************************
+*                                                                              *
+*  not exist ----> creating  zone names are in DB                              * 
+*    |                |                                                        *
+*    |             created   zones are created as primary asynch in a batch.   *
+*    |             /  |      NS and AAAA glue in parent. No DNSSEC on child.   *
+*    |            /   |                                                        *
+*    | batch   T1/    |      solicit PTR query received and PTR answer sent    *
+*    |          /     v                                                        *
+*  deleting <----- offered   one or more zones are sent to the HNA by DM(s)    *
+*    ^         T2     |                                                        *
+*    |                |      client requests cert from CA via ACME DNS         *
+*    |                |                                                        *
+*    |                |      client receives ACME DNS challenge from CA        *
+*    |                |                                                        *
+*    |                v      TXT update challenge received and answered        *
+*    |                |                                                        *
+*    |             assigning                                                   *
+*    |                |      potentially batch                                 *
+*    ^         T3     v                                                        *
+*    | <----<----- assigned  Glue TXT RR inserted in zone for ACME             *
+*    ^                |                                                        *
+*    |   any          |      client & CA complete cert asynch via ACME DNS     *
+*    |   NS RR        |                                                        *
+*    |   left?        |      DS or NS update add received using cert           *
+*    |  n    y        v                                                        *
+*    |<---------> delegating NS + Glue DS AAAA noted for add or delete         *
+*    ^    |           |                                                        *
+*    |    ^ NS or     |      batch to add DS to parent and resign or           *
+*    |    | DS Update |      zone changed to secondary and primary NS added    *
+*    |    |           v                                                        *
+*    L--<----<--- delegated  fully delegated zone with AXFR & glue in place    *
+*       T4                                                                     *
+*                                                                              *
+*                  any ->                                                      *
+*                   ^    |   AXFR received and reply sent                      *
+*                   |    |                                                     *
+*                    <---                                                      *
+*                                                                              *
+*                                                                              *
+*******************************************************************************/
+
+/*******************************************************************************
+*                                                                              *
+*               Time slots related to scheduled activities                     *
+*                                                                              *
+*  --------------------------------------------------------------------------  *
+* |       |          |         |      |        |         |           |       | *
+* | not   | deleting |  avoid  |  open for     |  avoid  | creating  | not   | *
+* | exist |          |  race   |  assigning    |  race   |           | exist | *
+* |       |          |         |      |        |(created)|           |       | *
+*  --------------------------------------------------------------------------  *
+*       T1-2       T1-1        T1     0       +1        +2          +3         *
+* ---------------------------------time slot---------------------------------> *
+*                                                                              *
+*                                       ^                                      *
+*                                      now                                     *
+*                                                                              *
+* Avoid race is to cope with situations where assigments have been accepted    *
+* but not yet executed in the DB and the slot rolls over. Zone creation is     *
+* also not instantaneous, so slots are created for slot +2 at time "now" so    *
+* that they are all ready for assignment when the slot rolls over.             *
+*******************************************************************************/
+
+// dictionary of words to use as tokens. Feel free to alter these words e.g. to your own language. more words = more bits per word. 1024=10 bits
+#include "dict.h"
+#define MYSQL_STRLEN 80
+
+// How long to wait between time slots.
+// longer means more open db entries and pending actions which could lead to timeouts in cert operations
+// Shorter = more load on the DNS server to create records and resign zones
+#define DM_TOFU_SLOT_LENGTH 60 // slot length in seconds. default 1 minute.
+// timeouts
+#define DM_TOFU_T1 2*DM_TOFU_SLOT_LENGTH // should be 2 * slot length in seconds
+#define DM_TOFU_T2 30*DM_TOFU_SLOT_LENGTH // arbitrary n >= 2 * slot length in seconds
+					  // (2 to allow for assigning -> assigned transition) and n to allow ACME challenge TXT RR to be received.
+#define DM_TOFU_T3 60*DM_TOFU_SLOT_LENGTH // arbitrary n * slot length to allow ACME challenge to completed and certificate to be received and used.
+#define DM_TOFU_T4 366*24*60*DM_TOFU_SLOT_LENGTH // arbitrary n * slot length to detect deceased clients who never issue an ACME challenge.
+			       
+#define MAX_NS_SECONDARY 2                // maximum number of secodnary NS per parent
+
+// A large random int used to make zone names harder to guess by subtracting it from current time.
+// Change this if you want. There's no dependency.
+// Note: guessing a zone name from a random IP address is only possible in the created state.
+// Once offered they are locked by source IP.
+// Once assigned they are locked by certificate before moving to delegating/delegated.
+// Should be < 17556722000 to avoid making time negative to 1 jan 1970 (unsigned 64 int in DB)
+#define OFFSET 15902842308
+
+// crude round robin on NS names
+// not sensible except for multiple parents running in one infra
+void round_robin_ns(char *parent_name, int *ns1_id, int *ns2_id, int *ns3_id );
+
+// Convert an ascii encoded hex string to decimal
+// Each char is 4 bits
+// limited to 32 bits (8 hex chars)
+uint32_t hexstr2dec(unsigned char *hex, int len) ;
+
+// take a string buffer and return the sha256 message digest
+// md must be SHA256_DIGEST_LENGTH (32) char long
+//void do_sha256(char *buf, size_t buf_len, unsigned char *md) ;
+//void do_EVP(const unsigned char *message, size_t message_len, unsigned char *digest);
+int do_EVP(const unsigned char *message, size_t message_len, unsigned char **digest, unsigned int *digest_len);
+
+// Convert a decimal to a word token
+// Each token represents 10 bits of information (1024 words in the dictionary)
+// Returns the length of the word added to the buffer.
+// The buffer must be large enough and is not checked.
+size_t dec2word(int dec, char *buf) ;
+
+// create an invariant opaque pass phrase zone name like horse.dog.cat.zoo.here
+// remember to free once used
+char *make_zone_name (unsigned long seed, int nwords) ;
+
+// return the current time slot
+// can be called with 0 to use current time
+time_t get_time_slot(time_t time);
+
+// Create nzones zones under parent in the db.
+// There can be collisions with existing names because the hash is truncated.
+// A "unique" constraint on `name` will force this insert to fail gracefully.
+// nzones is how many additional zones should be created
+void create_zones(char *parent_name, int nzones ,time_t time_slot);
+
+// copy from temporary storage to something more permanent that can be returned to caller
+ char *dm_tofu_cp_name(char *name);
+
+// linked list needed for dm_tofu_ns_batch
+typedef struct ll_parent {
+  char parent_name[MYSQL_STRLEN];
+  int parent_id;
+  struct ll_parent *next;
+} ll_parent_t;
+
+// kick off NS batch work
+// take the host name and kick off functions to generate config
+int dm_tofu_ns_batch();
+
+// kick off DM batch work
+int dm_tofu_dm_batch();
+
+// check for a valid zone_status as this is an ENUM type in SQL.
+// ('creating','created','offered','assigning','assigned','delegating','delegated','deleting')
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_zone_status (char *zone_status);
+
+// update db for the zone  zone_id to new zone_status
+int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status) ;
+
+// given a parent_name, fill the name of the primary NS in the buffer provided
+int dm_tofu_get_ns(char *parent_name, char *ns) ;
+
+// linked list needed for dm_tofu_get_secondary_ns
+typedef struct ll_secondary_ns {
+  char ns_name[MYSQL_STRLEN];
+  int infra_id;
+  struct ll_secondary_ns *next;
+} ll_secondary_ns_t;
+
+// given a parent_name, get a linked list of the secondary NS
+ll_secondary_ns_t dm_tofu_get_secondary_ns(char *parent_name) ;
+
+// linked list needed for dm_tofu_creating_to_created and dm_tofu_select_zone_status
+typedef struct ll_zone {
+  char zone_name[MYSQL_STRLEN];
+  int zone_id;
+  struct ll_zone *next;
+} ll_zone_t;
+
+// // create a linked list of zones under this parent_name with this zone_status
+// returns rc or -1 on failure
+int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
+
+// Batch job to move zones from creating to created
+// returns number of zones timed out or -1 for error
+// ns is the name of the name server that is being configured
+// (static for now but allows horizontal scaling later)
+int dm_tofu_creating_to_created(char *parent_name);
+
+// Check time out for zones stuck in created zone_status (that have not been claimed).
+// Uses Innodb atomic transaction to ensure completeness.
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int timeout_created_zone(char *parent_name, time_t time_slot); //By default this is for slot time -2
+
+// Offer 1 zone name under parent_name in the db
+// Uses Innodb atomic transaction to ensure uniqueness.
+// Blank zone for failure (no more slots)
+// The zone is then "locked" to the HNA via IP address
+// This helps prevent race conditions where a zone is assigned,
+// but the associated certificate has not yet been issued.
+char* offer_zone(char *parent_name, char *ip, time_t time_slot); // only one version of ip is supported. Either v4 or v6
+							      //
+// Check time out for zones stuck in offered zone_status (that have not transitioned to assigned).
+// Uses Innodb atomic transaction to ensure completeness.
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int timeout_offered_zone(char *parent_name, time_t time_slot); //By default this is for slot time -60
+
+// Batch job to move zones from assigning to assigned
+// returns number of zones timed out or -1 for error
+int dm_tofu_assigning_to_assigned(char *parent_name);
+
+// Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int timeout_assigned_zone(char *parent_name, time_t time_slot); //By default this is for slot time -60
+
+// Batch job to move zones from delegating to delegated
+// returns number of zones timed out or -1 for error
+int dm_tofu_delegating_to_delegated(char *parent_name);
+
+// Batch job to move zones from deleting to deleted
+// returns number of zones timed out or -1 for error
+int dm_tofu_deleting_to_deleted(char *parent_name);
+
+// returns an offered zone from the pre-created list in packet format
+ ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) ; // parent_name is the owner. zone is the zone to be delegated
+
+// function called from dm_worker to process and inbound query PTR packet
+ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_client); // 1st arg = packet, 2nd arg=SSL client (for cert)
+
+// Background job threads for TOFU
+
+// args storage to pass to thread
+typedef struct {
+           pthread_t thread_id;        /* ID returned by pthread_create() */
+	   int       run;              /* semaphore. 1 = continure running */
+	   time_t    last_exec;        /* last time this thread payload was executed */
+	   time_t    last_awake;       /* last time this thread was awake */
+	   time_t    last_time_slot;   /* last time slot this thread was processed.  time_t but written to DB. Is likely a 2038 problem */
+           int       thread_num;       /* Application-defined thread # */
+} dm_tofu_thread_t;
+
+// function called from server create file for knotc commands
+char *knot_helpers_create_file();
+// function called from server exec knot helper
+int knot_helpers_exec_file(char *filename);
+// function called from server delete file containing knotc commands
+int knot_helpers_delete_file(char *filename);
+
+// function called from server to start backround thread for regular tasks
+int dm_tofu_bg_start(dm_tofu_thread_t *my_thread);
+// function called from server to execute backround thread for regular tasks
+void *dm_tofu_bg_exec(void *arguments); // a single storage element with vars for this thread
+// function called from server to stop backround thread for regular tasks
+int dm_tofu_bg_stop(dm_tofu_thread_t *my_thread); // pointer to a threads
 
 #endif // DM_TOFU_INCLUDED
-~

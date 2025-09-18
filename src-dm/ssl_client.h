@@ -84,6 +84,8 @@ le SSL packets)*/
     //unsigned int query_len;
     size_t query_len;
 
+      char client_addr[INET6_ADDRSTRLEN]; // ipv4 is always shorter if this is used
+
 
 } ;
 

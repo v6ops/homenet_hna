@@ -9,7 +9,7 @@
 
 #define DB_SERVER "localhost"
 #define DB_USER "knot"
-#define DB_PASSWORD "knotpassword"
+#define DB_PASSWORD "Kn0tpassword!"
 #define DB_DATABASE "dm"
 
 /* fatal error */

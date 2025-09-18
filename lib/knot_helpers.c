@@ -121,7 +121,7 @@ pid_t  pid;
    } 
 } 
 
-// take a text DS RR and place in the DM comfig
+// take a text DS RR and place in the DM config
 int fork_make_knot_dm_ds(char *ds_rr) {
 pid_t  pid; 
    int status; 
@@ -214,4 +214,98 @@ pid_t  pid;
    } 
 } 
 
+// Set TXT record for specified zone. Used for ACME challenge
+int fork_make_knot_txt(char *zone,char *txt) {
+pid_t  pid; 
+   int status; 
+   fprintf(stderr,"knot_helpers_make_knot_txt %s %s\n",zone,txt);
 
+   pid = fork(); 
+   if (pid == -1){ 
+      printf("can't fork, error occured\n"); 
+      exit(EXIT_FAILURE); 
+   } 
+   else if (pid == 0){ 
+      printf("child process, pid = %u\n",getpid()); 
+  
+      //char *argv_list[] = {MAKE_KNOT_TXT,zone,txt,NULL}; 
+      char *argv_list[4] = {NULL}; 
+      argv_list[0] = MAKE_KNOT_TXT; 
+      argv_list[1] = zone; 
+      argv_list[2] = txt; 
+      argv_list[3] = NULL; 
+  
+      execv(MAKE_KNOT_TXT,argv_list); 
+      exit(0); 
+   } 
+   else{ 
+      printf("parent process, pid = %u\n",getppid()); 
+        if (waitpid(pid, &status, 0) > 0) { 
+            if (WIFEXITED(status) && !WEXITSTATUS(status)) {
+              printf("program execution successful\n"); 
+	      return 0;
+	    } else if (WIFEXITED(status) && WEXITSTATUS(status)) { 
+                if (WEXITSTATUS(status) == 127) { 
+                    // execv failed 
+                    printf("execv failed\n"); 
+                } else {
+                    printf("program terminated normally,"
+                       " but returned a non-zero status\n");                 
+		}
+            } else 
+               printf("program didn't terminate normally\n");             
+        }  else { 
+           // waitpid() failed 
+           printf("waitpid() failed\n"); 
+        } 
+      exit(0); 
+   } 
+}
+
+// Unset (delete) TXT record for specified zone. Used after ACME challenge
+int fork_delete_knot_txt(char *zone,char *txt) {
+pid_t  pid; 
+   int status; 
+   fprintf(stderr,"knot_helpers_delete_knot_txt %s %s\n",zone,txt);
+
+   pid = fork(); 
+   if (pid == -1){ 
+      printf("can't fork, error occured\n"); 
+      exit(EXIT_FAILURE); 
+   } 
+   else if (pid == 0){ 
+      printf("child process, pid = %u\n",getpid()); 
+  
+      //char *argv_list[] = {DELETE_KNOT_TXT,zone,txt,NULL}; 
+      char *argv_list[4] = {NULL}; 
+      argv_list[0] = DELETE_KNOT_TXT; 
+      argv_list[1] = zone; 
+      argv_list[2] = txt; 
+      argv_list[3] = NULL; 
+  
+      execv(DELETE_KNOT_TXT,argv_list); 
+      exit(0); 
+   } 
+   else{ 
+      printf("parent process, pid = %u\n",getppid()); 
+        if (waitpid(pid, &status, 0) > 0) { 
+            if (WIFEXITED(status) && !WEXITSTATUS(status)) {
+              printf("program execution successful\n"); 
+	      return 0;
+	    } else if (WIFEXITED(status) && WEXITSTATUS(status)) { 
+                if (WEXITSTATUS(status) == 127) { 
+                    // execv failed 
+                    printf("execv failed\n"); 
+                } else {
+                    printf("program terminated normally,"
+                       " but returned a non-zero status\n");                 
+		}
+            } else 
+               printf("program didn't terminate normally\n");             
+        }  else { 
+           // waitpid() failed 
+           printf("waitpid() failed\n"); 
+        } 
+      exit(0); 
+   } 
+}

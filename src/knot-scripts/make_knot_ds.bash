@@ -1,4 +1,5 @@
 #!/bin/bash
+# Generate DS record (all digest algorithms together) for specified key.
 cd /usr/local/etc/knot
 if [ $# -ne 2 ]
   then

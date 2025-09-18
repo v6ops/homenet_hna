@@ -20,7 +20,7 @@
  * additional layer to integrate openssl TLS transport
  *
  * Modifications #ifdef WITH_SSL
- *     (c) Ray Hunter <v6ops@globis.net> April 2024
+ *     (c) Ray Hunter <v6ops@globis.net> April 2024-2025
  * 
  */
 #endif //WITH_SSL
@@ -356,7 +356,9 @@ void on_accept(int fd, short ev, void *arg) {
     inet_ntop(AF_INET6,&(client_addr.sin6_addr),human_addr,INET6_ADDRSTRLEN);
     printf("client [%d]: accepted connection from %s.\n", client_fd,human_addr);
 #else
-    printf("client [%d]: accepted connection from %s.\n", client_fd,inet_ntoa(client_addr.sin_addr));
+    char human_addr[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET,&(client_addr.sin_addr.s_addr),human_addr,INET_ADDRSTRLEN);
+    printf("client [%d]: accepted connection from %s.\n", client_fd,human_addr);
 #endif
 
     /**
@@ -385,6 +387,15 @@ void on_accept(int fd, short ev, void *arg) {
   }
 
     ssl_client_init(client->p_ssl_client, client->fd, SSLMODE_SERVER);
+
+#ifdef WITH_IPv6
+    // remember the remote client address (as string)
+    memcpy(client->p_ssl_client->client_addr,human_addr, INET6_ADDRSTRLEN-1);
+    client->p_ssl_client->client_addr[INET6_ADDRSTRLEN-1] = 0; // ensure termination
+#else
+    memcpy(client->p_ssl_client->client_addr,human_addr, INET_ADDRSTRLEN-1);
+    client->p_ssl_client->client_addr[INET_ADDRSTRLEN-1] = 0; // ensure termination
+#endif
 
     /* callback to process the unencrypted data from ssl on every read */
     /* points the real work function where inbound data is processed   */

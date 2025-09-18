@@ -2,6 +2,8 @@
 #define MAKE_ZONE_INCLUDED
 
 #include <openssl/sha.h>
+#include <openssl/evp.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +15,7 @@
 
 #define OFFSET 1890284230853075345
 // A large random int used to make zone names harder to guess.
-// Change this if you want;
+// Change this if you want. There's no dependency.
 
 uint32_t hexstr2dec(unsigned char *hex, int len) ;
 void do_sha256(char *buf, size_t buf_len, unsigned char *md) ;

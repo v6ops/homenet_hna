@@ -190,13 +190,13 @@ int main(int argc, char** argv)
     ldns_pkt_print(stdout,ptr_pkt);
     BIO_puts(out,"Printed PTR\n");
     ssl_helpers_pkt2bio(ptr_pkt,web);
-    ldns_pkt_free(ptr_pkt);
+    ldns_helpers_pkt_free(ptr_pkt);
 
     BIO_puts(out,"Waiting PTR response\n");
 
     if ( (response_pkt=ssl_helpers_bio2pkt(web)) ) {
       ldns_pkt_print(stdout, response_pkt);
-      ldns_pkt_free(response_pkt);
+      ldns_helpers_pkt_free(response_pkt);
     }
 
     exit(EXIT_SUCCESS);
@@ -215,7 +215,7 @@ int main(int argc, char** argv)
   ldns_pkt_print(stdout,axfr_pkt);
   BIO_puts(out,"Printed AXFR\n");
   ssl_helpers_pkt2bio(axfr_pkt,web);
-  ldns_pkt_free(axfr_pkt);
+  ldns_helpers_pkt_free(axfr_pkt);
 
   BIO_puts(out,"Waiting AXFR reply\n");
 
@@ -256,7 +256,7 @@ int main(int argc, char** argv)
     }
     sprintf(buf, "freeing response pkt\n");
     BIO_puts(out, buf);
-    ldns_pkt_free(response_pkt);
+    ldns_helpers_pkt_free(response_pkt);
   }
   sprintf(buf, "Done AXFR\n");
   BIO_puts(out, buf);
@@ -271,7 +271,7 @@ int main(int argc, char** argv)
   ldns_pkt_print(stdout,update_ns_pkt);
   BIO_puts(out,"Printed NS UPDATE\n");
   ssl_helpers_pkt2bio(update_ns_pkt,web);
-  ldns_pkt_free(update_ns_pkt);
+  ldns_helpers_pkt_free(update_ns_pkt);
   BIO_puts(out,"Sent NS\n");
   /* end update ns */
 
@@ -279,12 +279,16 @@ int main(int argc, char** argv)
   ldns_pkt *update_ds_pkt;
   BIO_puts(out,"Creating DS UPDATE\n");
   update_ds_pkt=ldns_helpers_ds_update_new(zone);
-  BIO_puts(out,"Created DS UPDATE\n");
-  ldns_pkt_print(stdout,update_ds_pkt);
-  BIO_puts(out,"Printed DS UPDATE\n");
-  ssl_helpers_pkt2bio(update_ds_pkt,web);
-  ldns_pkt_free(update_ds_pkt);
-  BIO_puts(out,"Sent NS\n");
+  if (update_ds_pkt) {
+    BIO_puts(out,"Created DS UPDATE\n");
+    ldns_pkt_print(stdout,update_ds_pkt);
+    BIO_puts(out,"Printed DS UPDATE\n");
+    ssl_helpers_pkt2bio(update_ds_pkt,web);
+    ldns_helpers_pkt_free(update_ds_pkt);
+    BIO_puts(out,"Sent DS\n");
+  } else {
+    BIO_puts(out,"Failed to create DS\n");
+  }
   /* end update ds */
 
 
@@ -292,7 +296,7 @@ int main(int argc, char** argv)
 
   notify=ldns_helpers_notify_new("sub.homenetdns.com");
   ssl_helpers_pkt2bio(notify,web);
-  ldns_pkt_free(notify); 
+  ldns_helpers_pkt_free(notify); 
 
   /* end NOTIFY */
 
@@ -304,13 +308,13 @@ int main(int argc, char** argv)
   ldns_pkt_print(stdout,ns_pkt);
   BIO_puts(out,"Printed NS\n");
   ssl_helpers_pkt2bio(ns_pkt,web);
-  ldns_pkt_free(ns_pkt);
+  ldns_helpers_pkt_free(ns_pkt);
 
   BIO_puts(out,"Waiting NS response\n");
 
   if ( (response_pkt=ssl_helpers_bio2pkt(web)) ) {
     ldns_pkt_print(stdout, response_pkt);
-    ldns_pkt_free(response_pkt);
+    ldns_helpers_pkt_free(response_pkt);
   }
 
   /* end Query NS */
