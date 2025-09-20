@@ -20,10 +20,10 @@
 #include "dm_tofu.h"
 
 int main(void) {
-  dm_tofu_thread_t my_thread_struct;
+  dm_tofu_thread_t *my_thread_struct;
   int result_code;
 
-  result_code = dm_tofu_bg_start(&my_thread_struct);
+  my_thread_struct = dm_tofu_bg_start(1);
   printf("In main: background thread is created.\n");
 
   sleep(10);
@@ -110,7 +110,7 @@ freeaddrinfo(info);
   printf("Deleting %i assigned zones\n",deleting);
   printf("end db\n");
 
-  dm_tofu_ns_batch();
+  //dm_tofu_ns_batch();
   // dm_tofu_creating_to_created("homenetdns.com","ns1.homenetdns.com");
 
   double time_taken;
@@ -120,12 +120,12 @@ freeaddrinfo(info);
                               start.tv_usec)) * 1e-6;
 
   printf("In main: Time taken by program is %f\n",time_taken);
-  sleep(5);
+  sleep(30);
   char *fn;
   //fn=knot_helpers_create_file();
   //knot_helpers_delete_file(fn);
-  sleep(20);
-  printf("In main: woke up.\n");
+  sleep(60);
+  printf("In main: woke up again.\n");
 
   // stop the background thread
 

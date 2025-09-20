@@ -221,6 +221,8 @@ typedef struct ll_zone {
   struct ll_zone *next;
 } ll_zone_t;
 
+int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head);
+
 // // create a linked list of zones under this parent_name with this zone_status
 // returns rc or -1 on failure
 int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
@@ -294,10 +296,10 @@ int knot_helpers_exec_file(char *filename);
 int knot_helpers_delete_file(char *filename);
 
 // function called from server to start backround thread for regular tasks
-int dm_tofu_bg_start(dm_tofu_thread_t *my_thread);
+dm_tofu_thread_t *dm_tofu_bg_start(int thread_num);
 // function called from server to execute backround thread for regular tasks
 void *dm_tofu_bg_exec(void *arguments); // a single storage element with vars for this thread
 // function called from server to stop backround thread for regular tasks
-int dm_tofu_bg_stop(dm_tofu_thread_t *my_thread); // pointer to a threads
+int dm_tofu_bg_stop(dm_tofu_thread_t **my_thread); // pointer to a threads
 
 #endif // DM_TOFU_INCLUDED

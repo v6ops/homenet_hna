@@ -24,7 +24,25 @@
 */
 #include "dm_tofu.h"
 
-int main () {
+
+// print a linked list of zones
+int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head) {
+
+  ll_zone_t *ll_zone_tmp=NULL;
+  ll_zone_t *ll_zone_current=NULL;
+  ll_zone_current=ll_zone_head;
+  while (ll_zone_current != NULL) {
+    printf("Zone_name %s zone_id %i\n",ll_zone_current->zone_name,ll_zone_current->zone_id);
+    ll_zone_tmp=ll_zone_current->next;
+    free(ll_zone_current);
+    ll_zone_current=ll_zone_tmp;
+  }
+}
+
+
+
+int tmp_main () {
+
   // create a global storage
   unsigned char *md; 
   md=(unsigned char *)OPENSSL_malloc(EVP_MD_size(EVP_sha256()));
@@ -52,8 +70,10 @@ int main () {
   offer_zone("homenetdns.com","2001:abcd::3",0);
   offer_zone("homenetdns.com","2001:abcd::3",0);
   offer_zone("homenetdns.com","2001:abcd::4",0);
+  offer_zone("homenetdns.com","2001:abcd::5",0);
   offer_zone("homenetdns.com","",0);
   offer_zone("homenetdns.com","",0);
+
 
   exit(0);
 }
@@ -298,7 +318,7 @@ void create_zones(char *parent_name, int nzones, time_t now){
   db_close(db);
 }
 
-// Assign 1 zone_name under parent in the db
+// Offer 1 zone_name under parent in the db
 // Uses Innodb atomic transaction to ensure uniqueness.
 // Blank zone_name for failure (no more slots)
 // The zone is then "locked" to the HNA via IP address
@@ -455,10 +475,10 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   // reserve one row that has not been assigned
   // and is in the current time slot
   // and parent matches.
-  // This will lock this row for other threads until the transaction commits
+  // This will lock this row for other threads until the transaction commits. Skipped locked means another thread can continue and find the next row.
   printf("Reserve zone\n");
   stmt=mysql_stmt_init(db);
-  stmt_str="SELECT zone_id, zone_name FROM zone WHERE (zone_status='creating' AND parent_name =? AND zone_status_time >=? AND zone_status_time <? ) LIMIT 1 FOR UPDATE";
+  stmt_str="SELECT zone_id, zone_name FROM zone WHERE (zone_status='creating' AND parent_name =? AND zone_status_time >=? AND zone_status_time <? ) ORDER BY zone_id LIMIT 1 FOR UPDATE SKIP LOCKED";
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Reserve zone: prepare failed. %s\n",mysql_stmt_error(stmt));
@@ -780,7 +800,9 @@ char *dm_tofu_cp_name(char *name) {
 
 // kick off NS batch work
 // take the host name and kick off functions to generate config
-int dm_tofu_ns_batch();
+int dm_tofu_ns_batch() {
+  printf("dm_tofu_ns_batch TODO\n");
+}
 
 // kick off DM batch work
 int dm_tofu_dm_batch();
@@ -799,10 +821,131 @@ int dm_tofu_get_ns(char *parent_name, char *ns) ;
 // given a parent, get a linked list of the secondary NS
 ll_secondary_ns_t dm_tofu_get_secondary_ns(char *parent_name) ;
 
-
-// // create a linked list of zones under this parent with this zone_status
+// create a linked list of zones under this parent with this zone_status
 // returns rc or -1 on failure
-int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
+int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head) {
+
+  ll_zone_t *ll_zone_tmp=NULL;
+  ll_zone_t *ll_zone_current=NULL;
+
+  int ret;
+  char zone_name[MYSQL_STRLEN];
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(bind));
+  unsigned int zone_id;
+  memset(bind, 0, sizeof(bind));
+  size_t len1,len2;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[2];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[2];
+  bool is_null[2];
+  bool error[2];
+
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    printf("dm_tofu_select_zone_status: needs a parent name\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.zone_id, A.zone_name FROM zone AS A WHERE A.parent_name=? AND A.zone_status=?; ";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)parent_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(parent_name);
+  bind[0].length= &len1;
+
+  bind[1].buffer_type= MYSQL_TYPE_STRING;
+  bind[1].buffer= (char *)zone_status;
+  bind[1].buffer_length= MYSQL_STRLEN;
+  bind[1].is_null= 0;
+  len2=strlen(zone_status);
+  bind[1].length= &len2;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_zone_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_zone_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN zone_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&zone_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  /* STRING COLUMN zone_name */
+  bindout[1].buffer_type= MYSQL_TYPE_STRING;
+  bindout[1].buffer= (char *)&zone_name;
+  bindout[1].buffer_length= MYSQL_STRLEN;
+  bindout[1].is_null= &is_null[1];
+  bindout[1].length= &length[1];
+  bindout[1].error= &error[1];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_zone_status: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_select_zone_status: Error. Can't check zone status for parent_name %s %s\n",parent_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } 
+    // We have data to return in a single linked list
+    printf("rc %i zone_name %.*s id %i\n",rc,(int)length[1],zone_name,zone_id);
+    ll_zone_tmp=(ll_zone_t*)malloc(sizeof(ll_zone_t));
+    if (ll_zone_tmp==NULL) {
+      printf("dm_tofu_select_zone_status: Error. Cannot allocate memory\n");
+      exit (0);
+    }
+    memset(ll_zone_tmp,'\0',sizeof(ll_zone_t));
+    ll_zone_tmp->next=NULL;
+    // remember the head 1st time through
+    if (*ll_zone_head==NULL) {
+      // ll_zone_head is pointer to pointer so content can be updated to this new storage
+      *ll_zone_head=ll_zone_tmp;
+    } else {
+      ll_zone_current->next=ll_zone_tmp;
+    }
+    ll_zone_current=ll_zone_tmp;
+    ll_zone_current->zone_id=zone_id;
+    strcpy(ll_zone_current->zone_name,zone_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  return rc;
+
+}
 
 // Batch job to move zones from creating to created
 // returns number of zones timed out or -1 for error
@@ -879,9 +1022,54 @@ int knot_helpers_exec_file(char *filename);
 int knot_helpers_delete_file(char *filename);
 
 // function called from server to start backround thread for regular tasks
-int dm_tofu_bg_start(dm_tofu_thread_t *my_thread);
-// function called from server to execute backround thread for regular tasks
-void *dm_tofu_bg_exec(void *arguments); // a single storage element with vars for this thread
-// function called from server to stop backround thread for regular tasks
-int dm_tofu_bg_stop(dm_tofu_thread_t *my_thread); // pointer to a threads
+dm_tofu_thread_t *dm_tofu_bg_start(int thread_num) {
 
+  dm_tofu_thread_t *ptr;
+  ptr=(dm_tofu_thread_t *)malloc(sizeof(dm_tofu_thread_t));
+  memset(ptr,'\0',sizeof(dm_tofu_thread_t));
+  ptr->run=1;
+  ptr->last_exec=0;
+  ptr->last_awake=0;
+  ptr->last_time_slot=0;
+  ptr->thread_num=thread_num; // not used
+  pthread_create(&(ptr->thread_id), NULL, dm_tofu_bg_exec, ptr);
+  return ptr;
+} 
+  
+// function called from server to execute backround thread for regular tasks
+void *dm_tofu_bg_exec(void *arguments) { // a single storage element with vars for this thread
+  dm_tofu_thread_t *ptr;
+  ptr =(dm_tofu_thread_t *)arguments;
+  while (ptr->run ==1) {
+    time_t now=time(NULL);
+    time_t start_time_slot=get_time_slot(now);
+    printf("dm_tofu_bg_exec: woke up\n");
+    // printf("now %li last_time_slot %li start_time_slot%li\n",now,ptr->last_time_slot,start_time_slot);
+    // printf("next exec at %li\n",ptr->last_time_slot+DM_TOFU_SLOT_LENGTH);
+    sleep(1+rand()%2);
+    ptr->last_awake=now;
+    if (now >= (ptr->last_time_slot + DM_TOFU_SLOT_LENGTH)) {
+      printf("dm_tofu_bg_exec: Exec now %li last_time_slot %li start_time_slot%li\n",now,ptr->last_time_slot,start_time_slot);
+      ptr->last_exec=now;
+      ptr->last_time_slot=start_time_slot;
+      printf("next awake at %li\n",ptr->last_time_slot+DM_TOFU_SLOT_LENGTH);
+    }
+  }
+}
+// function called from server to stop backround thread for regular tasks
+int dm_tofu_bg_stop(dm_tofu_thread_t **my_thread) { // pointer to a threads
+  dm_tofu_thread_t *ptr;
+  int s;
+  printf("dm_tofu_bg_stop: stopping\n");
+  ptr=*my_thread;//set semaphore
+  ptr->run=0;
+  // wait for termination
+  s = pthread_join(ptr->thread_id, NULL);
+  if (s != 0) {
+    printf("dm_tofu_bg_stop: Error %i", s);
+    return -1;
+  }
+  free(ptr);
+  ptr=NULL;
+  return 0;
+}
