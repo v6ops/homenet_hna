@@ -39,6 +39,22 @@ int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head) {
   }
 }
 
+// print a linked list of ns
+int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_ns_head) {
+
+  ll_secondary_ns_t *ll_ns_tmp=NULL;
+  ll_secondary_ns_t *ll_ns_current=NULL;
+  ll_ns_current=ll_ns_head;
+  while (ll_ns_current != NULL) {
+    printf("NS %s infra_id %i\n",ll_ns_current->ns_name,ll_ns_current->infra_id);
+    ll_ns_tmp=ll_ns_current->next;
+    free(ll_ns_current);
+    ll_ns_current=ll_ns_tmp;
+  }
+}
+
+
+
 
 
 int tmp_main () {
@@ -815,11 +831,212 @@ int dm_tofu_is_valid_zone_status (char *zone_status);
 // update db for the zone  zone_id to new zone_status
 int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status) ;
 
-// given a parent, fill the name of the primary NS in the buffer provided
-int dm_tofu_get_ns(char *parent_name, char *ns) ;
+// given a parent, return the name of the primary NS name. Remember to free
+char *dm_tofu_get_ns(MYSQL *db,char *parent_name) {
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  char ns_name[MYSQL_STRLEN];
+  memset(ns_name,'\0',MYSQL_STRLEN);
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    printf("dm_tofu_get_ns: needs a parent name\n");
+    return NULL;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.name FROM infra AS A, parent AS B WHERE ( (B.parent_name=?) AND (A.infra_id = B.ns1) ); ";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_get_ns: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)parent_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(parent_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_get_ns: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_get_ns: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* STRING COLUMN ns_name */
+  bindout[0].buffer_type= MYSQL_TYPE_STRING;
+  bindout[0].buffer= (char *)&ns_name;
+  bindout[0].buffer_length= MYSQL_STRLEN;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read. We only expect 1
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_get_ns: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_get_ns: Error. Can't check zone status for parent_name %s %s\n",parent_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } 
+    // We have data to return but it is already in the buffer
+    printf("rc %i ns_name %.*s \n",rc,(int)length[0],ns_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  return dm_tofu_cp_name(ns_name); 
+
+}
+
 
 // given a parent, get a linked list of the secondary NS
-ll_secondary_ns_t dm_tofu_get_secondary_ns(char *parent_name) ;
+ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
+  ll_secondary_ns_t *ll_secondary_ns_tmp=NULL;
+  ll_secondary_ns_t *ll_secondary_ns_current=NULL;
+  ll_secondary_ns_t *ll_secondary_ns_head=NULL;
+
+  int infra_id;
+  char ns_name[MYSQL_STRLEN];
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[2];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[2];
+  bool is_null[2];
+  bool error[2];
+
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    printf("dm_tofu_select_secondary_ns_status: needs a parent name\n");
+    return NULL;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.name, A.infra_id FROM infra AS A, parent AS B WHERE ( (B.parent_name=?) AND ((A.infra_id = B.ns2) OR (A.infra_id = B.ns3)) ); ";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_secondary_ns_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)parent_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(parent_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_secondary_ns_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_secondary_ns_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* INTEGER COLUMN infra_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&infra_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  /* STRING COLUMN ns_name */
+  bindout[1].buffer_type= MYSQL_TYPE_STRING;
+  bindout[1].buffer= (char *)&ns_name;
+  bindout[1].buffer_length= MYSQL_STRLEN;
+  bindout[1].is_null= &is_null[1];
+  bindout[1].length= &length[1];
+  bindout[1].error= &error[1];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_secondary_ns_status: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_select_secondary_ns_status: Error. Can't check zone status for parent_name %s %s\n",parent_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } 
+    // We have data to return in a single linked list
+    printf("rc %i ns_name %.*s id %i\n",rc,(int)length[1],ns_name,infra_id);
+    ll_secondary_ns_tmp=(ll_secondary_ns_t*)malloc(sizeof(ll_secondary_ns_t));
+    if (ll_secondary_ns_tmp==NULL) {
+      printf("dm_tofu_select_secondary_ns_status: Error. Cannot allocate memory\n");
+      exit (0);
+    }
+    memset(ll_secondary_ns_tmp,'\0',sizeof(ll_secondary_ns_t));
+    ll_secondary_ns_tmp->next=NULL;
+    // remember the head 1st time through
+    if (ll_secondary_ns_head==NULL) {
+      // ll_secondary_ns_head is pointer to pointer so content can be updated to this new storage
+      ll_secondary_ns_head=ll_secondary_ns_tmp;
+    } else {
+      ll_secondary_ns_current->next=ll_secondary_ns_tmp;
+    }
+    ll_secondary_ns_current=ll_secondary_ns_tmp;
+    ll_secondary_ns_current->infra_id=infra_id;
+    strcpy(ll_secondary_ns_current->ns_name,ns_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  return ll_secondary_ns_head; 
+
+}
+
 
 // create a linked list of zones under this parent with this zone_status
 // returns rc or -1 on failure
@@ -828,7 +1045,6 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   ll_zone_t *ll_zone_tmp=NULL;
   ll_zone_t *ll_zone_current=NULL;
 
-  int ret;
   char zone_name[MYSQL_STRLEN];
   MYSQL_STMT *stmt;
   MYSQL_BIND bind[2];

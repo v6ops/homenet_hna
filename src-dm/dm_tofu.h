@@ -201,8 +201,8 @@ int dm_tofu_is_valid_zone_status (char *zone_status);
 // update db for the zone  zone_id to new zone_status
 int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status) ;
 
-// given a parent_name, fill the name of the primary NS in the buffer provided
-int dm_tofu_get_ns(char *parent_name, char *ns) ;
+// given a parent, return the name of the primary NS name. Remember to free
+char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
 
 // linked list needed for dm_tofu_get_secondary_ns
 typedef struct ll_secondary_ns {
@@ -212,7 +212,7 @@ typedef struct ll_secondary_ns {
 } ll_secondary_ns_t;
 
 // given a parent_name, get a linked list of the secondary NS
-ll_secondary_ns_t dm_tofu_get_secondary_ns(char *parent_name) ;
+ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) ;
 
 // linked list needed for dm_tofu_creating_to_created and dm_tofu_select_zone_status
 typedef struct ll_zone {
@@ -222,6 +222,7 @@ typedef struct ll_zone {
 } ll_zone_t;
 
 int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head);
+int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_secondary_ns_head);
 
 // // create a linked list of zones under this parent_name with this zone_status
 // returns rc or -1 on failure

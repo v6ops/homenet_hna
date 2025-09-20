@@ -20,6 +20,15 @@ int main(int argc, char *argv[]) {
   dm_tofu_select_zone_status(db,"homenetdns.com","offered",&ll_zone_head);
   dm_tofu_print_ll_zone(ll_zone_head);
 
+  ll_secondary_ns_t *ll_ns_head= dm_tofu_get_secondary_ns(db, "homenetdns.com") ;
+  dm_tofu_print_ll_ns(ll_ns_head);
+
+  char *ns=dm_tofu_get_ns(db, "homenetdns.com");
+  printf("%s\n",ns) ;
+  if (ns !=NULL) {
+    free(ns);
+    ns=NULL;
+  }
 
   db_close(db);
 
