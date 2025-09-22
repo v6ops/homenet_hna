@@ -25,7 +25,7 @@
 #include "dm_tofu.h"
 
 
-// print a linked list of zones
+// print a linked list of zones. Remember to set point to NULL on return.
 int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head) {
 
   ll_zone_t *ll_zone_tmp=NULL;
@@ -39,7 +39,7 @@ int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head) {
   }
 }
 
-// print a linked list of ns
+// print a linked list of ns. Remember to set point to NULL on return.
 int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_ns_head) {
 
   ll_secondary_ns_t *ll_ns_tmp=NULL;
@@ -53,46 +53,20 @@ int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_ns_head) {
   }
 }
 
+// print a linked list of parent. Remember to set point to NULL on return.
+int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head) {
 
-
-
-
-int tmp_main () {
-
-  // create a global storage
-  unsigned char *md; 
-  md=(unsigned char *)OPENSSL_malloc(EVP_MD_size(EVP_sha256()));
-  memset(md,'\0',32*sizeof(unsigned char));
-  unsigned char *str="Hi There";
-  unsigned int *digest_length;
-  *digest_length=EVP_MD_size(EVP_sha256());
-  printf("len %i",*digest_length);
-  do_EVP(str, (size_t)strlen(str), &md, digest_length);
-  int i;
-  for (i=0;i<32;i++) {
-    printf("%x",md[i]);
+  ll_parent_t *ll_parent_tmp=NULL;
+  ll_parent_t *ll_parent_current=NULL;
+  ll_parent_current=ll_parent_head;
+  while (ll_parent_current != NULL) {
+    printf("parent_name %s parent_id %i\n",ll_parent_current->parent_name,ll_parent_current->parent_id);
+    ll_parent_tmp=ll_parent_current->next;
+    free(ll_parent_current);
+    ll_parent_current=ll_parent_tmp;
   }
-  printf("\n");
-  printf(":%s:\n", dm_tofu_cp_name("asa/dns.com"));
-  printf(":%s:\n", dm_tofu_cp_name(NULL));
-  str="123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
-  printf(":%s:\n", dm_tofu_cp_name(str));
-  create_zones("homenetdns.com",100,0);
-
-  offer_zone("homenetdns.com","2001:abcd::1",0);
-  offer_zone("homenetdns.com","2001:abcd::1",0);
-  offer_zone("homenetdns.com","2001:abcd::2",0);
-  offer_zone("homenetdns.com","2001:abcd::2",0);
-  offer_zone("homenetdns.com","2001:abcd::3",0);
-  offer_zone("homenetdns.com","2001:abcd::3",0);
-  offer_zone("homenetdns.com","2001:abcd::4",0);
-  offer_zone("homenetdns.com","2001:abcd::5",0);
-  offer_zone("homenetdns.com","",0);
-  offer_zone("homenetdns.com","",0);
-
-
-  exit(0);
 }
+
 
 // crude round robin on NS names
 // not sensible except for multiple parents running in one infra
@@ -1105,7 +1079,154 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
   mysql_stmt_close(stmt);
   return ll_secondary_ns_head; 
 
+} 
+
+// create a linked list of parent where this hostname acts as primary NS
+// returns rc or -1 on failure
+int dm_tofu_select_parent_ns(MYSQL *db, ll_parent_t **ll_parent_head) {
+  return dm_tofu_select_parent_func(db, ll_parent_head,"ns");
 }
+
+// create a linked list of parent where this hostname acts as primary NS
+// returns rc or -1 on failure
+int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head) {
+  return dm_tofu_select_parent_func(db, ll_parent_head,"dm");
+}
+
+// create a linked list of parent where this hostname acts as func
+// funs id literal dm or ns
+// returns rc or -1 on failure
+int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *type) {
+
+  ll_parent_t *ll_parent_tmp=NULL;
+  ll_parent_t *ll_parent_current=NULL;
+
+  char hostname[MYSQL_STRLEN];
+  memset(hostname, '\0', MYSQL_STRLEN);
+  char parent_name[MYSQL_STRLEN];
+  memset(parent_name, '\0', MYSQL_STRLEN);
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  unsigned int parent_id;
+  size_t len1;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[2];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[2];
+  bool is_null[2];
+  bool error[2];
+  char *stmt_str;
+
+  if (gethostname(hostname, MYSQL_STRLEN)|| (strlen(hostname)<2)) {
+    printf("dm_tofu_select_parent_func: can't get hostname\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  if (type==NULL) {
+    return -1;
+  }
+  if (strcmp(type,"ns")==0) {
+    stmt_str="SELECT DISTINCT A.parent_id, A.parent_name FROM parent AS A, infra AS B WHERE ((A.ns1=B.infra_id) AND (B.hostname=?)) ; ";
+  } else if(strcmp(type,"dm")==0) {
+    stmt_str="SELECT DISTINCT A.parent_id, A.parent_name FROM parent AS A, infra AS B WHERE ( ((A.dm1=B.infra_id) || (A.dm2=B.infra_id)) AND (B.hostname=?)) ; ";
+  } else {
+     printf("dm_tofu_select_parent_func: unknown function %s\n",type);
+    return -1;
+  }
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_parent_func: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)hostname;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(hostname);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_parent_func: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_parent_func: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN parent_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&parent_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  /* STRING COLUMN parent_name */
+  bindout[1].buffer_type= MYSQL_TYPE_STRING;
+  bindout[1].buffer= (char *)&parent_name;
+  bindout[1].buffer_length= MYSQL_STRLEN;
+  bindout[1].is_null= &is_null[1];
+  bindout[1].length= &length[1];
+  bindout[1].error= &error[1];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_parent_func: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_select_parent_func: Error. Can't get parent names hostname %s %s\n",hostname,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } 
+    // We have data to return in a single linked list
+    printf("rc %i parent_name %.*s id %i\n",rc,(int)length[1],parent_name,parent_id);
+    ll_parent_tmp=(ll_parent_t*)malloc(sizeof(ll_parent_t));
+    if (ll_parent_tmp==NULL) {
+      printf("dm_tofu_select_parent_func: Error. Cannot allocate memory\n");
+      exit (0);
+    }
+    memset(ll_parent_tmp,'\0',sizeof(ll_parent_t));
+    ll_parent_tmp->next=NULL;
+    // remember the head 1st time through
+    if (*ll_parent_head==NULL) {
+      // ll_parent_head is pointer to pointer so content can be updated to this new storage
+      *ll_parent_head=ll_parent_tmp;
+    } else {
+      ll_parent_current->next=ll_parent_tmp;
+    }
+    ll_parent_current=ll_parent_tmp;
+    ll_parent_current->parent_id=parent_id;
+    strcpy(ll_parent_current->parent_name,parent_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  return rc;
+}
+
+// create a linked list of parent under this hostname for DM
+// returns rc or -1 on failure
+int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head);
 
 
 // create a linked list of zones under this parent with this zone_status
@@ -1120,7 +1241,6 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   MYSQL_BIND bind[2];
   memset(bind, 0, sizeof(bind));
   unsigned int zone_id;
-  memset(bind, 0, sizeof(bind));
   size_t len1,len2;
   int rc=0;  // row count
 

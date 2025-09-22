@@ -186,6 +186,17 @@ typedef struct ll_parent {
   struct ll_parent *next;
 } ll_parent_t;
 
+// create a linked list of parent under this hostname for DM or NS
+int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *type);
+
+// create a linked list of parent under this hostname for NS
+// returns rc or -1 on failure
+int dm_tofu_select_parent_ns(MYSQL *db, ll_parent_t **ll_parent_head);
+
+// create a linked list of parent under this hostname for DM
+// returns rc or -1 on failure
+int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head);
+
 // kick off NS batch work
 // take the host name and kick off functions to generate config
 int dm_tofu_ns_batch();
@@ -223,6 +234,7 @@ typedef struct ll_zone {
 
 int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head);
 int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_secondary_ns_head);
+int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head);
 
 // // create a linked list of zones under this parent_name with this zone_status
 // returns rc or -1 on failure

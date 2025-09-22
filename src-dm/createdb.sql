@@ -15,7 +15,6 @@ CREATE TABLE parent (parent_id INT AUTO_INCREMENT,
        ns3 INT DEFAULT 0,    /* when using catalogue zones, just used for NOTIFY in primary NS                           */ 
        PRIMARY KEY (parent_id) );
 
-
 DROP TABLE IF EXISTS infra;
 CREATE TABLE infra (infra_id INT AUTO_INCREMENT,
        name VARCHAR(80),     /* fqdn - used to key to parent for any name-> address translation in config */

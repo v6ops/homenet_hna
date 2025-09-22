@@ -30,9 +30,17 @@ int main(int argc, char *argv[]) {
     ns=NULL;
   }
 
-  printf("%i\n",dm_tofu_update_zone_status(db, 673, "crap"));
-  printf("%i\n",dm_tofu_update_zone_status(db, 673, "created"));
-  printf("%i\n",dm_tofu_update_zone_status(db, 672, "deleting"));
+  ll_parent_t *ll_parent_head=NULL;
+  int rc= dm_tofu_select_parent_ns(db,&ll_parent_head);
+  dm_tofu_print_ll_parent(ll_parent_head); // also does free
+  ll_parent_head=NULL;
+  rc= dm_tofu_select_parent_dm(db,&ll_parent_head);
+  dm_tofu_print_ll_parent(ll_parent_head); // also does free
+
+
+  // printf("%i\n",dm_tofu_update_zone_status(db, 673, "crap"));
+  // printf("%i\n",dm_tofu_update_zone_status(db, 673, "created"));
+  // printf("%i\n",dm_tofu_update_zone_status(db, 672, "deleting"));
 
   db_close(db);
 
