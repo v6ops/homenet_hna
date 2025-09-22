@@ -30,6 +30,10 @@ int main(int argc, char *argv[]) {
     ns=NULL;
   }
 
+  printf("%i\n",dm_tofu_update_zone_status(db, 673, "crap"));
+  printf("%i\n",dm_tofu_update_zone_status(db, 673, "created"));
+  printf("%i\n",dm_tofu_update_zone_status(db, 672, "deleting"));
+
   db_close(db);
 
 }

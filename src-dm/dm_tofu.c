@@ -826,12 +826,82 @@ int dm_tofu_dm_batch();
 // check for a valid zone_status as this is an ENUM type in SQL.
 // ('creating','created','offered','assigning','assigned','delegating','delegated','deleting')
 // 0 = valid. -1 = not valid
-int dm_tofu_is_valid_zone_status (char *zone_status);
+int dm_tofu_is_valid_zone_status (char *zone_status) {
+
+  if ( (zone_status==NULL) || (strlen(zone_status)<7) ) {
+    return -1;
+  }
+  if ( (strcmp(zone_status,"creating")==0) || (strcmp(zone_status,"created")==0) \
+	  || (strcmp(zone_status,"offered")==0) || (strcmp(zone_status,"assigning")==0) \
+	  || (strcmp(zone_status,"assigned")==0) || (strcmp(zone_status,"delegating")==0) \
+	  || (strcmp(zone_status,"delegated")==0) || (strcmp(zone_status,"deleting")==0) ) {
+    return 0;
+  }
+  return -1;
+}
 
 // update db for the zone  zone_id to new zone_status
-int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status) ;
+int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status) {
 
-// given a parent, return the name of the primary NS name. Remember to free
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  MYSQL_RES *result;
+
+  int status;
+
+  if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
+    printf("dm_tofu_update_zone_status: needs a valid zone name\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="UPDATE zone AS A SET zone_status=? WHERE ( (A.zone_id=?) );";
+
+  printf("prepare\n");
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_update_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_status;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_status);
+  bind[0].length= &len1;
+  bind[1].buffer_type= MYSQL_TYPE_LONG;
+  bind[1].buffer= (char *)&zone_id;
+  bind[1].is_null= 0;
+  bind[1].length= 0;
+  printf("bind\n");
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_update_zone_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  printf("exec\n");
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_update_zone_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  printf("use\n");
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
+}
+
+
+// given a parent, return the name of the primary NS name. Remember to free the string.
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) {
 
   MYSQL_STMT *stmt;
