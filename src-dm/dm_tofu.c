@@ -790,12 +790,35 @@ char *dm_tofu_cp_name(char *name) {
 
 // kick off NS batch work
 // take the host name and kick off functions to generate config
-int dm_tofu_ns_batch() {
+void dm_tofu_ns_batch(MYSQL *db) {
   printf("dm_tofu_ns_batch TODO\n");
 }
 
 // kick off DM batch work
-int dm_tofu_dm_batch();
+void dm_tofu_dm_batch(MYSQL *db) {
+  printf("dm_tofu_dm_batch:started\n");
+  ll_parent_t *ll_parent_head=NULL;
+  ll_parent_t *ll_parent_tmp=NULL;
+  ll_parent_t *ll_parent_current=NULL;
+  int rc= dm_tofu_select_parent_dm(db,&ll_parent_head);
+  time_t slot_time=get_time_slot(0);
+  // we have DM work to do on this machine
+  if (rc>0) {
+    ll_parent_current=ll_parent_head;
+    while (ll_parent_current!=NULL) {
+      // do the DM timeouts
+      printf("dm_tofu_dm_batch: processing %s\n",ll_parent_current->parent_name);
+      dm_tofu_timeout_created_zone(db,"ll_parent_current->parent_name",slot_time);
+      dm_tofu_timeout_offered_zone(db,"ll_parent_current->parent_name",slot_time);
+      dm_tofu_timeout_assigned_zone(db,"ll_parent_current->parent_name",slot_time);
+      dm_tofu_timeout_delegated_zone(db,"ll_parent_current->parent_name",slot_time);
+      ll_parent_tmp=ll_parent_current->next;
+      free(ll_parent_current);
+      ll_parent_current=ll_parent_tmp;
+    }
+  }
+  printf("dm_tofu_dm_batch:ended\n");
+}
 
 // check for a valid zone_status as this is an ENUM type in SQL.
 // ('creating','created','offered','assigning','assigned','delegating','delegated','deleting')
@@ -823,8 +846,6 @@ int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status) {
   size_t len1;
   int rc=0;  // row count
   MYSQL_RES *result;
-
-  int status;
 
   if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
     printf("dm_tofu_update_zone_status: needs a valid zone name\n");
@@ -1527,10 +1548,16 @@ dm_tofu_thread_t *dm_tofu_bg_start(int thread_num) {
   dm_tofu_thread_t *ptr;
   ptr=(dm_tofu_thread_t *)malloc(sizeof(dm_tofu_thread_t));
   memset(ptr,'\0',sizeof(dm_tofu_thread_t));
+  MYSQL *db;
+
+  db=db_init();
+  db_connect(db,DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE);
+
   ptr->run=1;
   ptr->last_exec=0;
   ptr->last_awake=0;
   ptr->last_time_slot=0;
+  ptr->db=db;
   ptr->thread_num=thread_num; // not used
   pthread_create(&(ptr->thread_id), NULL, dm_tofu_bg_exec, ptr);
   return ptr;
@@ -1550,6 +1577,8 @@ void *dm_tofu_bg_exec(void *arguments) { // a single storage element with vars f
     ptr->last_awake=now;
     if (now >= (ptr->last_time_slot + DM_TOFU_SLOT_LENGTH)) {
       printf("dm_tofu_bg_exec: Exec now %li last_time_slot %li start_time_slot%li\n",now,ptr->last_time_slot,start_time_slot);
+      // do DM batch work
+      dm_tofu_dm_batch(ptr->db);
       ptr->last_exec=now;
       ptr->last_time_slot=start_time_slot;
       printf("next awake at %li\n",ptr->last_time_slot+DM_TOFU_SLOT_LENGTH);
@@ -1568,6 +1597,10 @@ int dm_tofu_bg_stop(dm_tofu_thread_t **my_thread) { // pointer to a threads
   if (s != 0) {
     printf("dm_tofu_bg_stop: Error %i", s);
     return -1;
+  }
+  if (ptr->db !=NULL) {
+    db_close(ptr->db);
+    ptr->db=NULL;
   }
   free(ptr);
   ptr=NULL;

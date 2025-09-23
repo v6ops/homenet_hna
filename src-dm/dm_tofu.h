@@ -207,10 +207,10 @@ int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head);
 
 // kick off NS batch work
 // take the host name and kick off functions to generate config
-int dm_tofu_ns_batch();
+void dm_tofu_ns_batch(MYSQL *db);
 
 // kick off DM batch work
-int dm_tofu_dm_batch();
+void dm_tofu_dm_batch(MYSQL *db);
 
 // check for a valid zone_status as this is an ENUM type in SQL.
 // ('creating','created','offered','assigning','assigned','delegating','delegated','deleting')
@@ -316,6 +316,7 @@ typedef struct {
 	   time_t    last_exec;        /* last time this thread payload was executed */
 	   time_t    last_awake;       /* last time this thread was awake */
 	   time_t    last_time_slot;   /* last time slot this thread was processed.  time_t but written to DB. Is likely a 2038 problem */
+	   MYSQL     *db;              /* db handle specific ot this thread */
            int       thread_num;       /* Application-defined thread # */
 } dm_tofu_thread_t;
 

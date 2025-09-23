@@ -78,13 +78,6 @@ int main(void) {
   zn=offer_zone("homenetdns.com","",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  int deleting;
-  deleting=timeout_created_zone("homenetdns.com",0);
-  printf("Deleting %i created zones\n",deleting);
-  deleting=timeout_offered_zone("homenetdns.com",0);
-  printf("Deleting %i offered zones\n",deleting);
-  deleting=timeout_assigned_zone("homenetdns.com",0);
-  printf("Deleting %i assigned zones\n",deleting);
   printf("end db\n");
 
   //dm_tofu_ns_batch();
