@@ -114,6 +114,11 @@
 * but not yet executed in the DB and the slot rolls over. Zone creation is     *
 * also not instantaneous, so slots are created for slot +2 at time "now" so    *
 * that they are all ready for assignment when the slot rolls over.             *
+*                                                                              *
+* Acceptance of an inbound event packet is limited to the timeout.             *
+* Delete events in batcj mode are timed at timeout-2 slots.                    *
+* So there's a period of ±2 timeslots where a zone exists in a state           *
+* that cannot change as it waits to be deleted.                                *
 *******************************************************************************/
 
 // dictionary of words to use as tokens. Feel free to alter these words e.g. to your own language. more words = more bits per word. 1024=10 bits
@@ -125,9 +130,12 @@
 // Shorter = more load on the DNS server to create records and resign zones
 #define DM_TOFU_SLOT_LENGTH 60 // slot length in seconds. default 1 minute.
 // timeouts
-#define DM_TOFU_T1 2*DM_TOFU_SLOT_LENGTH // should be 2 * slot length in seconds
+#define DM_TOFU_T1 31*24*60*DM_TOFU_SLOT_LENGTH // should be at least 1 * slot length in seconds. May be much longer.
+					  // Zone is open for offer from Now+1 until T1. Timeout to deleting @T1-2
 #define DM_TOFU_T2 30*DM_TOFU_SLOT_LENGTH // arbitrary n >= 2 * slot length in seconds
 					  // (2 to allow for assigning -> assigned transition) and n to allow ACME challenge TXT RR to be received.
+					  // Theoretically possible to transition back to created state, but we don't know what the related CA state is.
+					  // Safe option is therefore to delete and start over with a new offer.
 #define DM_TOFU_T3 60*DM_TOFU_SLOT_LENGTH // arbitrary n * slot length to allow ACME challenge to completed and certificate to be received and used.
 #define DM_TOFU_T4 366*24*60*DM_TOFU_SLOT_LENGTH // arbitrary n * slot length to detect deceased clients who never issue an ACME challenge.
 			       
@@ -246,11 +254,16 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 // (static for now but allows horizontal scaling later)
 int dm_tofu_creating_to_created(char *parent_name);
 
+// Check time out for zones stuck in zone_status.
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char * zone_status, time_t time_slot, time_t timeout); //By default this is for current slot time +timeout +2*DM_TOFU_SLOT_LENGTH
+
 // Check time out for zones stuck in created zone_status (that have not been claimed).
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_created_zone(char *parent_name, time_t time_slot); //By default this is for slot time -2
+int dm_tofu_timeout_created_zone(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Offer 1 zone name under parent_name in the db
 // Uses Innodb atomic transaction to ensure uniqueness.
@@ -259,12 +272,12 @@ int timeout_created_zone(char *parent_name, time_t time_slot); //By default this
 // This helps prevent race conditions where a zone is assigned,
 // but the associated certificate has not yet been issued.
 char* offer_zone(char *parent_name, char *ip, time_t time_slot); // only one version of ip is supported. Either v4 or v6
-							      //
+
 // Check time out for zones stuck in offered zone_status (that have not transitioned to assigned).
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_offered_zone(char *parent_name, time_t time_slot); //By default this is for slot time -60
+int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Batch job to move zones from assigning to assigned
 // returns number of zones timed out or -1 for error
@@ -273,11 +286,16 @@ int dm_tofu_assigning_to_assigned(char *parent_name);
 // Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_assigned_zone(char *parent_name, time_t time_slot); //By default this is for slot time -60
+int dm_tofu_timeout_assigned_zone(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Batch job to move zones from delegating to delegated
 // returns number of zones timed out or -1 for error
 int dm_tofu_delegating_to_delegated(char *parent_name);
+
+// Check time out for zones stuck in delegated zone_status (that have not had any updates using certificates, probably due to HNA no longer in use).
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Batch job to move zones from deleting to deleted
 // returns number of zones timed out or -1 for error

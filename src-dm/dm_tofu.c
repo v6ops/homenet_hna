@@ -1359,12 +1359,79 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 // (static for now but allows horizontal scaling later)
 int dm_tofu_creating_to_created(char *parent_name);
 
+// Check time out for zones stuck in zone_status.
+// Uses Innodb atomic transaction to ensure completeness.
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t time_slot, time_t timeout) { 
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  MYSQL_RES *result;
+
+  time_t start_slot=(time_slot>0) ? time_slot : get_time_slot(0);
+  time_t offset=(timeout>0) ? timeout : 0;
+  offset+=2*DM_TOFU_SLOT_LENGTH; // add 2 slots to timeout value to avoid race condition
+  time_t last_valid_time=time_slot-offset;
+
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    printf("dm_tofu_timeout_zone: needs a parent name\n");
+    return -1;
+  }
+  if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
+    printf("dm_tofu_timeout_zone: needs a valid zone name\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="UPDATE zone AS A SET zone_status='deleting' WHERE ( (A.zone_status=?) AND (A.zone_status_time<=?) );"; 
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_timeout_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_status;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_status);
+  bind[0].length= &len1;
+  bind[1].buffer_type= MYSQL_TYPE_LONG;
+  bind[1].buffer= (char *)&last_valid_time;
+  bind[1].is_null= 0;
+  bind[1].length= 0;
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_timeout_zone: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_timeout_zone: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
+}
+
+
 // Check time out for zones stuck in created zone_status (that have not been claimed).
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_created_zone(char *parent_name, time_t time_slot){ //By default this is for slot time -2
-//	TODO
+int dm_tofu_timeout_created_zone(MYSQL *db, char *parent_name, time_t time_slot){
+  return dm_tofu_timeout_zone(db, parent_name, "created", time_slot, DM_TOFU_T1) ;
 }
 
 // Offer 1 zone name under parent in the db
@@ -1379,8 +1446,8 @@ int timeout_created_zone(char *parent_name, time_t time_slot){ //By default this
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_offered_zone(char *parent_name, time_t time_slot){ //By default this is for slot time -60
-//	TODO
+int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t time_slot){
+  return dm_tofu_timeout_zone(db, parent_name, "offered", time_slot, DM_TOFU_T2) ;
 }
 
 // Batch job to move zones from assigning to assigned
@@ -1392,14 +1459,21 @@ int dm_tofu_assigning_to_assigned(char *parent_name){
 // Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int timeout_assigned_zone(char *parent_name, time_t time_slot){ //By default this is for slot time -60
-//	TODO
+int dm_tofu_timeout_assigned_zone(MYSQL *db, char *parent_name, time_t time_slot){
+  return dm_tofu_timeout_zone(db, parent_name, "assigned", time_slot, DM_TOFU_T3) ;
 }
 
 // Batch job to move zones from delegating to delegated
 // returns number of zones timed out or -1 for error
 int dm_tofu_delegating_to_delegated(char *parent_name){
 //	TODO
+}
+
+// Check time out for zones stuck in delegated zone_status (that have not had any updates using certificates, probably due to HNA no longer in use).
+// Marks zones for deletion, rather than directly actioning
+// returns number of zones timed out or -1 for error
+int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t time_slot){
+  return dm_tofu_timeout_zone(db, parent_name, "delegated", time_slot, DM_TOFU_T4) ;
 }
 
 // Batch job to move zones from deleting to deleted
@@ -1421,7 +1495,27 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
 // Background job threads for TOFU
 
 // function called from server create file for knotc commands
-char *knot_helpers_create_file();
+char *knot_helpers_create_file() {
+   char filename_template[] = "/tmp/KnotcCommandsXXXXXX";
+   char *filename=(char*)malloc(sizeof(filename_template));
+   memset(filename,'\0',sizeof(filename_template));
+
+   if (filename == NULL) {
+     printf("knot_helpers_create_file: can't allocate memory\n");
+     return NULL;
+   }
+   strcpy(filename,filename_template); // gets overwritten by std function so use own storage.
+
+   int fd = mkstemp(filename);
+   if (fd < 0) {
+     printf("knot_helpers_create_file: can't create temporary file\n");
+     return NULL;
+   }
+   close(fd);
+
+   return filename;
+}
+
 // function called from server exec knot helper
 int knot_helpers_exec_file(char *filename);
 // function called from server delete file containing knotc commands

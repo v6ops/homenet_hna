@@ -41,8 +41,20 @@ int main(int argc, char *argv[]) {
   // printf("%i\n",dm_tofu_update_zone_status(db, 673, "crap"));
   // printf("%i\n",dm_tofu_update_zone_status(db, 673, "created"));
   // printf("%i\n",dm_tofu_update_zone_status(db, 672, "deleting"));
+  //
+  // test timeouts
+  // 31536300 is 5 minutes later
+  dm_tofu_timeout_created_zone(db,"homenetdns.com",31536000);
+  dm_tofu_timeout_offered_zone(db,"homenetdns.com",31536300);
+  dm_tofu_timeout_assigned_zone(db,"homenetdns.com",31536300);
+  dm_tofu_timeout_delegated_zone(db,"homenetdns.com",31536300);
 
   db_close(db);
+
+
+  char *fn=knot_helpers_create_file();
+  printf("filename %s\n",fn);
+  free(fn);
 
 }
 

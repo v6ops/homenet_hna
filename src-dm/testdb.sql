@@ -77,6 +77,16 @@ INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) V
 
 -- homenet dns is our only parent domain at this time
 INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('homenetdns.com',3,4,1,2,5);
+INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('homenetdns2.com',3,4,2,5,1);
+-- test zone timeouts
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_created.homenetdns.com','homenetdns.com','created',3600);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_offered.homenetdns.com','homenetdns.com','offered',3600);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_assigned.homenetdns.com','homenetdns.com','assigned',3600);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_delegated.homenetdns.com','homenetdns.com','delegated',3600);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('not_stuck_in_created.homenetdns.com','homenetdns.com','created',31536000);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('not_stuck_in_offered.homenetdns.com','homenetdns.com','offered',31536000);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('not_stuck_in_assigned.homenetdns.com','homenetdns.com','assigned',31536000);
+INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('not_stuck_in_delegated.homenetdns.com','homenetdns.com','delegated',31536000);
 
 /* zone state lifecycle DM perspective */
 /*******************************************************************************
