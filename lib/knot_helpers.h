@@ -34,6 +34,7 @@
 #define KNOT_MAX_FILENAME_LEN 250
 #define MAKE_KNOT_TXT "/usr/local/etc/knot-dm/make_new_txt.bash"
 #define DELETE_KNOT_TXT "/usr/local/etc/knot-dm/delete_txt.bash"
+#define KNOTC_EXEC_FILE "/home/knot/knotc_exec_file.bash"
 
 
 #include <stdio.h>
@@ -56,5 +57,7 @@ int fork_make_knot_dm_config(char *zone, char *dm_remote);
 int fork_make_knot_txt(char *zone,char *txt);
 // Unset (delete) TXT record for specified zone. Used after ACME challenge
 int fork_delete_knot_txt(char *zone,char *txt);
+
+int knot_helpers_exec_file(char *filename);
 
 #endif

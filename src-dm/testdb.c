@@ -12,6 +12,33 @@ int main(int argc, char *argv[]) {
   db_connect(db,DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE);
 
   printf("hello\n");
+
+/*
+int res=0;
+char message[]="test message 22";
+size_t message_len=strlen(message);
+char key[]="privatekey";
+size_t key_len=strlen(key);
+size_t len=32; // SHA256
+printf("len %li\n",len);
+
+unsigned char *digest=(unsigned char*)malloc(len);
+memset(digest,'\0',len);
+size_t *digest_len=&len;
+
+res=do_EVP_HMACSHA256((const unsigned char *)message, message_len, (const unsigned char *)key, key_len, &digest, digest_len);
+printf("res %i\n",res);
+printf("len %li\n",*digest_len);
+
+  // output the result for debug
+  for (size_t i = 0; i < *digest_len; i++) {
+    printf("%02x", digest[i]);
+  }
+  putchar('\n');
+
+exit(0);
+*/
+
   ll_zone_t *ll_zone_head=NULL;
   dm_tofu_select_zone_status(db,"homenetdns.com","creating",&ll_zone_head);
   printf("hello\n");

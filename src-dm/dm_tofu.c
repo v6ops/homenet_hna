@@ -31,12 +31,15 @@ int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head) {
   ll_zone_t *ll_zone_tmp=NULL;
   ll_zone_t *ll_zone_current=NULL;
   ll_zone_current=ll_zone_head;
+  int rc=0;
   while (ll_zone_current != NULL) {
     printf("Zone_name %s zone_id %i\n",ll_zone_current->zone_name,ll_zone_current->zone_id);
     ll_zone_tmp=ll_zone_current->next;
     free(ll_zone_current);
     ll_zone_current=ll_zone_tmp;
+    rc++;
   }
+  return rc;
 }
 
 // print a linked list of ns. Remember to set point to NULL on return.
@@ -45,12 +48,15 @@ int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_ns_head) {
   ll_secondary_ns_t *ll_ns_tmp=NULL;
   ll_secondary_ns_t *ll_ns_current=NULL;
   ll_ns_current=ll_ns_head;
+  int rc=0;
   while (ll_ns_current != NULL) {
     printf("NS %s infra_id %i\n",ll_ns_current->ns_name,ll_ns_current->infra_id);
     ll_ns_tmp=ll_ns_current->next;
     free(ll_ns_current);
     ll_ns_current=ll_ns_tmp;
+    rc++;
   }
+  return rc;
 }
 
 // print a linked list of parent. Remember to set point to NULL on return.
@@ -59,12 +65,15 @@ int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head) {
   ll_parent_t *ll_parent_tmp=NULL;
   ll_parent_t *ll_parent_current=NULL;
   ll_parent_current=ll_parent_head;
+  int rc=0;
   while (ll_parent_current != NULL) {
     printf("parent_name %s parent_id %i\n",ll_parent_current->parent_name,ll_parent_current->parent_id);
     ll_parent_tmp=ll_parent_current->next;
     free(ll_parent_current);
     ll_parent_current=ll_parent_tmp;
+    rc++;
   }
+  return rc;
 }
 
 
@@ -80,7 +89,6 @@ void round_robin_ns(char *parent_name, int *ns1_id, int *ns2_id, int *ns3_id ) {
 uint32_t hexstr2dec(unsigned char *hex, int len) {
   int i;
   int c=0;
-  uint32_t result=0;
   int l=len;
   if (l>8) {
     l=8;
@@ -103,7 +111,7 @@ uint32_t hexstr2dec(unsigned char *hex, int len) {
 
 // take a string buffer and return the sha256 message digest
 // md must be SHA256_DIGEST_LENGTH (32) char long
-int do_EVP(const unsigned char *message, size_t message_len, unsigned char **digest, unsigned int *digest_len) {
+int do_EVP_SHA256(const unsigned char *message, size_t message_len, unsigned char **digest, unsigned int *digest_len) {
 
     EVP_MD_CTX *mdctx;
 
@@ -129,6 +137,41 @@ int do_EVP(const unsigned char *message, size_t message_len, unsigned char **dig
 
     EVP_MD_CTX_destroy(mdctx);
     return 0;
+}
+
+// take a message and a private key (key) and return the HMAC_SHA256(message,key) in the digest
+int do_EVP_HMACSHA256(const unsigned char *message, size_t message_len, const unsigned char *key, size_t key_len, unsigned char **digest, size_t *digest_len) {
+  EVP_MD_CTX* mdctx = NULL;
+  EVP_PKEY *pkey = NULL;
+
+  if(!(mdctx = EVP_MD_CTX_create())) {
+    printf("do_EVP: Can't create CTX\n");
+    return -1;
+  }
+
+  if(!(pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_HMAC, NULL, key, key_len))) {
+    printf("do_EVP: Can't create mac key\n");
+    return -1;
+  }
+
+  if(1 != EVP_DigestSignInit(mdctx, NULL, EVP_sha256(), NULL, pkey)) {
+    printf("do_EVP: Can't init CTX\n");
+    return -1;
+  }
+
+  /* Call update with the message */
+  if(1 != EVP_DigestSignUpdate(mdctx, message, message_len)) {
+    printf("do_EVP: Can't update digest\n");
+    return -1;
+  }
+
+  if(1 != EVP_DigestSignFinal(mdctx, *digest, digest_len)) {
+    printf("do_EVP: Can't finalise digest\n");
+    return -1;
+  }
+  EVP_MD_CTX_destroy(mdctx);
+
+  return 0;
 }
 
 // Initialise a dictionary of words to use as tokens
@@ -162,7 +205,7 @@ size_t dec2word(int dec, char *buf) {
 // create an invariant opaque pass phrase zone name like dog.cat.zoo.here
 // remember to free once used
 char *make_zone_name (unsigned long seed, int nwords) {
-  printf("make_zone_name: %li %i\n",seed,nwords);
+  //printf("make_zone_name: %li %i\n",seed,nwords);
 
   if (nwords>16) { nwords=16; } // md is 32 chars with 2 chars per word
 
@@ -192,7 +235,9 @@ char *make_zone_name (unsigned long seed, int nwords) {
   // Does not have to be crypto secure but this yields
   // hard to guess zone names if people are abusive,
   // provided the seed is good.
-  do_EVP(buf, (size_t)strlen(buf), &md, digest_length);
+  //do_EVP_SHA256((const unsigned char *)buf, (size_t)strlen(buf), &md, digest_length);
+  char secret[]=DM_TOFU_PRIVATE_KEY;
+  do_EVP_HMACSHA256((const unsigned char *)buf, (size_t)strlen(buf),(const unsigned char *)secret, (size_t)strlen(secret), &md, digest_length);
 
   int i=0;
   while (i<nwords) { // passphrase length
@@ -206,7 +251,7 @@ char *make_zone_name (unsigned long seed, int nwords) {
   } 
   zn[pos]='\0'; // terminate with a null char
   zn=(char *)realloc(zn,(pos+1)*sizeof(char)); // shorten to the minimum
-  //printf("Zone %s\n",zn);
+  // printf("make_zone_name %s\n",zn);
   OPENSSL_free(md);
   return zn;
 }
@@ -223,8 +268,7 @@ time_t get_time_slot(time_t now){
 // Create nzones zones under parent in the db.
 // There can be collisions with existing names because the hash is truncated.
 // A "unique" constraint on `name` will force this insert to fail gracefully.
-void create_zones(char *parent_name, int nzones, time_t now){
-  MYSQL *db;
+void create_zones(MYSQL *db, char *parent_name, int nzones, time_t now){
   char *zn;
   char buf[MYSQL_STRLEN]; // length database name field
   memset(buf,'\0',MYSQL_STRLEN*sizeof(char));
@@ -239,9 +283,6 @@ void create_zones(char *parent_name, int nzones, time_t now){
   slot=get_time_slot(now);
   printf("Creating zones at slot %lu\n",slot);
 
-  db=db_init(); 
-  db_connect(db, DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE);
-
   stmt=mysql_stmt_init(db);
   char *stmt_str="INSERT INTO zone (zone_name,parent_name,zone_status,zone_status_time) VALUES (?,?,'creating',?);";
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
@@ -250,11 +291,14 @@ void create_zones(char *parent_name, int nzones, time_t now){
   }
 
   int i=0;
+  int ret=0;
   int collisions=0; // track failed inserts (asssume due to name collisions)
   while(i<nzones) {
-    i++;
-    zn=make_zone_name(slot+i+OFFSET,4);
-    snprintf(buf,MYSQL_STRLEN,"%s.%s",zn,parent_name); // concat with max MYSQL_STRLEN char
+    zn=make_zone_name(slot+i+OFFSET+collisions,4);
+    ret=snprintf(buf,MYSQL_STRLEN,"%s.%s",zn,parent_name); // concat with max MYSQL_STRLEN char
+    if (ret <0) { // this will never be hit if MYSQL_STRLEN has been used correctly, but prevents potential compiler warnings
+      printf("create_zones: Warning. Zone name %s truncated to db field length MYSQL_STRLEN chars\n",buf);
+    }
     free(zn);
 
     bind[0].buffer_type= MYSQL_TYPE_STRING;
@@ -305,16 +349,13 @@ void create_zones(char *parent_name, int nzones, time_t now){
   }
   // close statement and free
   mysql_stmt_close(stmt);
-  db_close(db);
 }
 
 // Offer 1 zone_name under parent in the db
 // Uses Innodb atomic transaction to ensure uniqueness.
 // Blank zone_name for failure (no more slots)
 // The zone is then "locked" to the HNA via IP address
-char* offer_zone(char *parent_name, char *ipv6, time_t now){
-  MYSQL *db;
-  int ret;
+char *offer_zone(MYSQL *db, char *parent_name, char *ipv6, time_t slot_time){
   char zone_name[MYSQL_STRLEN];
   char name[MYSQL_STRLEN]; // infra table
   char buf[MYSQL_STRLEN]; // length database name field
@@ -322,13 +363,11 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   time_t start_slot,end_slot;
   MYSQL_STMT *stmt;
   MYSQL_RES *result;
-  MYSQL_ROW row;
   MYSQL_BIND bind[3];
-  unsigned int num_fields;
   unsigned int zone_id;
   unsigned int infra_id;
   memset(bind, 0, sizeof(bind));
-  size_t len1,len2,len3,len4;
+  size_t len1,len3;
   int rc=0;  // row count
 
   int status;
@@ -338,7 +377,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   bool is_null[2];
   bool error[2];
 
-  start_slot=get_time_slot(0);
+  start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
   end_slot=start_slot+60;
   printf("Assigning zones at slot %lu\n",start_slot);
 
@@ -347,13 +386,11 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
     return NULL;
   }
 
-  db=db_init(); 
-  db_connect(db, DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE);
-
   stmt=mysql_stmt_init(db);
   // start a transaction
   if (mysql_query(db,"BEGIN")) {
     printf ("offer_zone: Error. Can't start transaction\n");
+    mysql_stmt_close(stmt);
     return NULL;
   }
   result=mysql_use_result(db);
@@ -372,6 +409,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("offer_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -399,14 +437,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (mysql_stmt_bind_param(stmt, bind) ) {
     printf ("offer_zone: bind failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   if (mysql_stmt_execute(stmt) ) {
     printf ("offer_zone: exec failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -428,8 +466,8 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_bind_result(stmt, bindout)) {
     fprintf(stderr, " mysql_stmt_bind_result() failed\n");
     fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -456,8 +494,8 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (rc>0) { // repeat the last response
     printf("Existing reservation found rc %i zone_name %.*s id %i\n",rc,(int)length[1],zone_name,zone_id);
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return dm_tofu_cp_name(zone_name);
   }
   mysql_stmt_close(stmt);
@@ -473,6 +511,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Reserve zone: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   // parent_name start_slot end_slot
@@ -496,14 +535,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (mysql_stmt_bind_param(stmt, bind)) {
     printf("Reserve zone: bind failed %s\n",mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   if (mysql_stmt_execute(stmt)) {
     printf ("offer_zone: exec failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -529,6 +568,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
     fprintf(stderr, " mysql_stmt_bind_result() failed\n");
     fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -539,10 +579,12 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
     if (status == 1 ) {
       printf ("Offer_zone: Error. Can't reserve a zone_name %s\n",mysql_error(db));
       mysql_rollback(db);
+      mysql_stmt_close(stmt);
       return NULL;
     } else if (status == MYSQL_NO_DATA && rc==0) {
       printf ("Offer_zone: Info. Can't reserve a zone_name. No slots available.\n");
       mysql_rollback(db);
+      mysql_stmt_close(stmt);
       return NULL;
     } else if (status == MYSQL_NO_DATA) {
       break; // last line. normal end of read
@@ -560,10 +602,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Insert infra: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   memset(buf,'\0',sizeof(buf));
-  snprintf(buf,MYSQL_STRLEN,"%s%s","hna-",zone_name); // concat with max MYSQL_STRLEN char
+  int ret=snprintf(buf,MYSQL_STRLEN,"%s%s","hna-",zone_name); // concat with max MYSQL_STRLEN char
+  if (ret <0) {
+    printf("Offer_zone: Warning. HNA name %s truncated to db field length MYSQL_STRLEN chars\n",buf);
+  }
 
   MYSQL_BIND bind_infra[5];
   memset(bind_infra, 0, sizeof(bind_infra));
@@ -604,14 +650,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (mysql_stmt_bind_param(stmt, bind_infra)) {
     printf("Insert HNA: bind_infra failed %s\n",mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   if (mysql_stmt_execute(stmt)) {
     printf ("Insert HNA: exec failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -625,6 +671,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Get HNA: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   // similar to previous so re-use bind
@@ -649,14 +696,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (mysql_stmt_bind_param(stmt, bind)) {
     printf("Select HNA: bind failed %s\n",mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   if (mysql_stmt_execute(stmt)) {
     printf ("Select HNA: exec failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -680,6 +727,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
     fprintf(stderr, " mysql_stmt_bind_result() failed\n");
     fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -690,6 +738,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
     if (status == 1 || (status == MYSQL_NO_DATA && rc==0)) {
       printf ("make_zone: Error. Can't find infra id %s\n",mysql_error(db));
       mysql_rollback(db);
+      mysql_stmt_close(stmt);
       return NULL;
     } else if (status == MYSQL_NO_DATA) {
       break; // last line. normal end of read
@@ -708,6 +757,7 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Update zone: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   // similar to previous so re-use bind
@@ -729,14 +779,14 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
 
   if (mysql_stmt_bind_param(stmt, bind)) {
     printf("Select HNA: bind failed %s\n",mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
   if (mysql_stmt_execute(stmt)) {
     printf ("Select HNA: exec failed. %s\n",mysql_error(db));
-    mysql_stmt_close(stmt);
     mysql_rollback(db);
+    mysql_stmt_close(stmt);
     return NULL;
   }
 
@@ -744,33 +794,10 @@ char* offer_zone(char *parent_name, char *ipv6, time_t now){
   // commit the transaction
   mysql_commit(db);
 
-  db_close(db);
   return dm_tofu_cp_name(zone_name);
 }
 
 
-
-
-
-
-
-// #######
-
-/*
-// create an invariant opaque pass phrase zone name like horse.dog.cat.zoo.here
-// remember to free once used
-char *make_zone_name (unsigned long seed, int nwords) ;
-
-// return the current time slot
-// can be called with 0 to use current time
-time_t get_time_slot(time_t time);
-
-// Create nzones zones under parent in the db.
-// There can be collisions with existing names because the hash is truncated.
-// A "unique" constraint on `name` will force this insert to fail gracefully.
-// nzones is how many additional zones should be created
-void create_zones(char *parent, int nzones ,time_t time_slot);
-*/
 
 // copy from temporary storage to something more permanent that can be returned to caller
 // truncates to the field length of the DB string fields.
@@ -791,7 +818,27 @@ char *dm_tofu_cp_name(char *name) {
 // kick off NS batch work
 // take the host name and kick off functions to generate config
 void dm_tofu_ns_batch(MYSQL *db) {
-  printf("dm_tofu_ns_batch TODO\n");
+  printf("dm_tofu_ns_batch:started\n");
+  ll_parent_t *ll_parent_head=NULL;
+  ll_parent_t *ll_parent_tmp=NULL;
+  ll_parent_t *ll_parent_current=NULL;
+  int rc= dm_tofu_select_parent_ns(db,&ll_parent_head);
+  time_t slot_time=get_time_slot(0);
+  // we have NS work to do on this machine
+  if (rc>0) {
+    ll_parent_current=ll_parent_head;
+    while (ll_parent_current!=NULL) {
+      // do the NS config updates
+      printf("dm_tofu_ns_batch: processing %s\n",ll_parent_current->parent_name);
+      dm_tofu_creating_to_created(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_assigning_to_assigned(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_delegating_to_delegated(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_deleting_to_deleted(db,ll_parent_current->parent_name,slot_time);
+      ll_parent_tmp=ll_parent_current->next;
+      free(ll_parent_current);
+      ll_parent_current=ll_parent_tmp;
+    }
+  }
 }
 
 // kick off DM batch work
@@ -800,6 +847,10 @@ void dm_tofu_dm_batch(MYSQL *db) {
   ll_parent_t *ll_parent_head=NULL;
   ll_parent_t *ll_parent_tmp=NULL;
   ll_parent_t *ll_parent_current=NULL;
+
+  int ret=0;
+  int zone_count=0;
+
   int rc= dm_tofu_select_parent_dm(db,&ll_parent_head);
   time_t slot_time=get_time_slot(0);
   // we have DM work to do on this machine
@@ -808,10 +859,29 @@ void dm_tofu_dm_batch(MYSQL *db) {
     while (ll_parent_current!=NULL) {
       // do the DM timeouts
       printf("dm_tofu_dm_batch: processing %s\n",ll_parent_current->parent_name);
-      dm_tofu_timeout_created_zone(db,"ll_parent_current->parent_name",slot_time);
-      dm_tofu_timeout_offered_zone(db,"ll_parent_current->parent_name",slot_time);
-      dm_tofu_timeout_assigned_zone(db,"ll_parent_current->parent_name",slot_time);
-      dm_tofu_timeout_delegated_zone(db,"ll_parent_current->parent_name",slot_time);
+      dm_tofu_timeout_created_zone(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_timeout_offered_zone(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_timeout_assigned_zone(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_timeout_delegated_zone(db,ll_parent_current->parent_name,slot_time);
+
+      // maintain a pool of DM_TOFU_POOL_SIZE zones in creating or created status (this rate limits new zone allocation)
+      zone_count=0;
+      ret=dm_tofu_count_zone_status(db, ll_parent_current->parent_name, "creating");
+      if (ret>0) {
+        zone_count+=ret;
+      }
+      printf("dm_tofu_dm_batch: zone count creating %i\n",zone_count);
+      ret=dm_tofu_count_zone_status(db, ll_parent_current->parent_name, "created");
+      if (ret>0) {
+        zone_count+=ret;
+      }
+      printf("dm_tofu_dm_batch: zone count created %i\n",zone_count);
+      if (zone_count < DM_TOFU_POOL_SIZE) {
+        printf("dm_tofu_dm_batch: creating %i new zones\n",DM_TOFU_POOL_SIZE - zone_count);
+        create_zones(db, ll_parent_current->parent_name, DM_TOFU_POOL_SIZE - zone_count, slot_time);
+      }
+
+      // next parent zone
       ll_parent_tmp=ll_parent_current->next;
       free(ll_parent_current);
       ll_parent_current=ll_parent_tmp;
@@ -838,10 +908,10 @@ int dm_tofu_is_valid_zone_status (char *zone_status) {
 }
 
 // update db for the zone  zone_id to new zone_status
-int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status) {
+int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status, time_t slot_time) {
 
   MYSQL_STMT *stmt;
-  MYSQL_BIND bind[2];
+  MYSQL_BIND bind[3];
   memset(bind, 0, sizeof(bind));
   size_t len1;
   int rc=0;  // row count
@@ -851,11 +921,11 @@ int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status) {
     printf("dm_tofu_update_zone_status: needs a valid zone name\n");
     return -1;
   }
+  time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
 
   stmt=mysql_stmt_init(db);
-  char *stmt_str="UPDATE zone AS A SET zone_status=? WHERE ( (A.zone_id=?) );";
+  char *stmt_str="UPDATE zone AS A SET zone_status=?, zone_status_time=? WHERE ( (A.zone_id=?) );";
 
-  printf("prepare\n");
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("dm_tofu_update_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_stmt_close(stmt);
@@ -868,24 +938,26 @@ int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status) {
   bind[0].is_null= 0;
   len1=strlen(zone_status);
   bind[0].length= &len1;
-  bind[1].buffer_type= MYSQL_TYPE_LONG;
-  bind[1].buffer= (char *)&zone_id;
+  bind[1].buffer_type= MYSQL_TYPE_LONGLONG;
+  bind[1].buffer= (char *)&start_slot;
   bind[1].is_null= 0;
   bind[1].length= 0;
-  printf("bind\n");
+  bind[2].buffer_type= MYSQL_TYPE_LONG;
+  bind[2].buffer= (char *)&zone_id;
+  bind[2].is_null= 0;
+  bind[2].length= 0;
+
   if (mysql_stmt_bind_param(stmt, bind) ) {
     printf ("dm_tofu_update_zone_status: bind failed. %s\n",mysql_error(db));
     mysql_stmt_close(stmt);
     return -1;
   }
-  printf("exec\n");
   if (mysql_stmt_execute(stmt) ) {
     printf ("dm_tofu_update_zone_status: exec failed. %s\n",mysql_error(db));
     mysql_stmt_close(stmt);
     return -1;
   }
 
-  printf("use\n");
   result=mysql_use_result(db);
   rc=mysql_affected_rows(db);
   mysql_free_result(result);
@@ -1249,6 +1321,103 @@ int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *typ
 // returns rc or -1 on failure
 int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head);
 
+// count zones under this parent with this zone_status
+// returns rc or -1 on failure
+int dm_tofu_count_zone_status(MYSQL *db, char *parent_name, char *zone_status) {
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(bind));
+  size_t len1,len2;
+  int rc=0;  // row count
+  int zone_count=0;
+  int count=0;
+
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    printf("dm_tofu_count_zone_status: needs a parent name\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT COUNT(*) FROM `zone` WHERE ( (`parent_name`=?) AND (`zone_status`=?) );";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_count_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)parent_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(parent_name);
+  bind[0].length= &len1;
+
+  bind[1].buffer_type= MYSQL_TYPE_STRING;
+  bind[1].buffer= (char *)zone_status;
+  bind[1].buffer_length= MYSQL_STRLEN;
+  bind[1].is_null= 0;
+  len2=strlen(zone_status);
+  bind[1].length= &len2;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_count_zone_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_count_zone_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN count */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&count;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_count_zone_status: Error. No count data\n");
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_count_zone_status: Error. Can't check zone count for parent_name %s %s\n",parent_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } 
+    // We have data to return
+    printf("rc %i count %i\n",rc,count);
+    zone_count+=count;
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  return count;
+}
+
 
 // create a linked list of zones under this parent with this zone_status
 // returns rc or -1 on failure
@@ -1378,13 +1547,127 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 // returns number of zones timed out or -1 for error
 // ns is the name of the name server that is being configured
 // (static for now but allows horizontal scaling later)
-int dm_tofu_creating_to_created(char *parent_name);
+int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) {
+  ll_zone_t *ll_zone_head=NULL;
+  ll_zone_t *ll_zone_tmp=NULL;
+  ll_zone_t *ll_zone_current=NULL;
+  char zone_status_str[]="creating";
+  char new_zone_status_str[]="created";
+  int rc;
+
+  char *fn_knotc_config;
+  FILE *fd_knotc_config;
+  char *fn_knotc_zone;
+  FILE *fd_knotc_zone;
+
+  time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
+  int status=0;
+  printf("dm_tofu_creating_to_created: started\n");
+
+  // get the list of zones in this parent in this status
+  rc=dm_tofu_select_zone_status(db, parent_name, zone_status_str, &ll_zone_head);
+
+  if (rc==0) {
+    printf("dm_tofu_creating_to_created: nothing to do.\n");
+    return rc;
+  }
+  if (rc<0) {
+    printf("dm_tofu_creating_to_created: Error in dm_tofu_select_zone_status. Nothing to do.\n");
+    return rc;
+  }
+
+  // we have zones to process (rc>0)
+  ll_zone_current=ll_zone_head;
+  int first_pass=1;
+
+  // this pass to create and exec command files for knotc
+  while (ll_zone_current!=NULL) {
+    printf("dm_tofu_creating_to_created: processing zone %s\n",ll_zone_current->zone_name);
+
+    if (first_pass==1) {
+      first_pass=0;
+
+      // Create temp files for knotc config and zone commands
+      fn_knotc_config=knot_helpers_create_file();
+      fn_knotc_zone=knot_helpers_create_file();
+      if ((fn_knotc_config==NULL) || (fn_knotc_zone)==NULL) {
+        printf("dm_tofu_creating_to_created: Error. Can't create temp files.\n");
+        break;
+      }
+
+      // open the temp files
+      fd_knotc_config=fopen(fn_knotc_config,"w+");
+      fd_knotc_zone=fopen(fn_knotc_zone,"w+");
+      if ((fd_knotc_config==NULL) || (fd_knotc_zone)==NULL) {
+        printf("dm_tofu_creating_to_created: Error. Can't open temp files.\n");
+        break;
+      }
+
+      // start knotc transactions
+      fprintf(fd_knotc_config,"config-begin\n");
+      fprintf(fd_knotc_zone,"zone-freeze %s\n",ll_zone_current->zone_name);
+      fprintf(fd_knotc_zone,"zone-begin %s\n",ll_zone_current->zone_name);
+    }
+
+    // create zones and config the zone
+
+    // get next zone
+    ll_zone_tmp=ll_zone_current->next;
+
+    if (ll_zone_tmp==NULL) { // last time through?
+      // end knotc transactions
+      fprintf(fd_knotc_config,"config-commit\n");
+      fprintf(fd_knotc_zone,"zone-commit %s\n",ll_zone_current->zone_name);
+      fprintf(fd_knotc_zone,"zone-thaw %s\n",ll_zone_current->zone_name);
+
+      // close the temp files
+      fclose(fd_knotc_config); 
+      fclose(fd_knotc_zone); 
+
+      // execute the commands via knotc
+      printf("dm_tofu_creating_to_created: executing zone %s\n",ll_zone_current->zone_name);
+      //status=knot_helpers_exec_file(fn_knotc_config);
+      status=0;
+      if (status!=0) {
+        printf("dm_tofu_creating_to_created: warning. Error executing zone config %s\n",ll_zone_current->zone_name);
+      }
+      //status=knot_helpers_exec_file(fn_knotc_zone);
+      if (status!=0) {
+        printf("dm_tofu_creating_to_created: warning. Error executing zone content %s\n",ll_zone_current->zone_name);
+      }
+
+      // remove the temp files
+      status=knot_helpers_delete_file(fn_knotc_config);
+      if (status!=0) {
+        printf("dm_tofu_creating_to_created: warning. Error deleting temp config file %s\n",ll_zone_current->zone_name);
+      }
+      status=knot_helpers_delete_file(fn_knotc_zone);
+      if (status!=0) {
+        printf("dm_tofu_creating_to_created: warning. Error deleting temp zone content file %s\n",ll_zone_current->zone_name);
+      }
+    } // end if last time through
+    ll_zone_current=ll_zone_tmp;
+  } // end WHILE ll_zone_current
+
+  // this pass to update the zone status in the db and free the linked list
+  ll_zone_current=ll_zone_head;
+  while (ll_zone_current!=NULL) {
+    printf("dm_tofu_creating_to_created: updating zone %s %li\n",ll_zone_current->zone_name,slot_time);
+    dm_tofu_update_zone_status(db, ll_zone_current->zone_id, new_zone_status_str, slot_time);
+    ll_zone_tmp=ll_zone_current->next;
+    free(ll_zone_current);
+    ll_zone_current=ll_zone_tmp;
+  } // end WHILE ll_zone_current
+   
+  printf("dm_tofu_creating_to_created: ended.\n");
+  return rc;
+}
 
 // Check time out for zones stuck in zone_status.
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t time_slot, time_t timeout) { 
+int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t slot_time, time_t timeout) { 
 
   MYSQL_STMT *stmt;
   MYSQL_BIND bind[2];
@@ -1393,10 +1676,10 @@ int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t
   int rc=0;  // row count
   MYSQL_RES *result;
 
-  time_t start_slot=(time_slot>0) ? time_slot : get_time_slot(0);
+  time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
   time_t offset=(timeout>0) ? timeout : 0;
   offset+=2*DM_TOFU_SLOT_LENGTH; // add 2 slots to timeout value to avoid race condition
-  time_t last_valid_time=time_slot-offset;
+  time_t last_valid_time=start_slot-offset;
 
   if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
     printf("dm_tofu_timeout_zone: needs a parent name\n");
@@ -1451,56 +1734,51 @@ int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int dm_tofu_timeout_created_zone(MYSQL *db, char *parent_name, time_t time_slot){
-  return dm_tofu_timeout_zone(db, parent_name, "created", time_slot, DM_TOFU_T1) ;
+int dm_tofu_timeout_created_zone(MYSQL *db, char *parent_name, time_t slot_time){
+  return dm_tofu_timeout_zone(db, parent_name, "created", slot_time, DM_TOFU_T1) ;
 }
 
-// Offer 1 zone name under parent in the db
-// Uses Innodb atomic transaction to ensure uniqueness.
-// Blank zone for failure (no more slots)
-// The zone is then "locked" to the HNA via IP address
-// This helps prevent race conditions where a zone is assigned,
-// but the associated certificate has not yet been issued.
-// char* offer_zone(char *parent_name, char *ip, time_t time_slot); // only one version of ip is supported. Either v4 or v6
-							      //
 // Check time out for zones stuck in offered zone_status (that have not transitioned to assigned).
 // Uses Innodb atomic transaction to ensure completeness.
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t time_slot){
-  return dm_tofu_timeout_zone(db, parent_name, "offered", time_slot, DM_TOFU_T2) ;
+int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t slot_time){
+  return dm_tofu_timeout_zone(db, parent_name, "offered", slot_time, DM_TOFU_T2) ;
 }
 
 // Batch job to move zones from assigning to assigned
 // returns number of zones timed out or -1 for error
-int dm_tofu_assigning_to_assigned(char *parent_name){
+int dm_tofu_assigning_to_assigned(MYSQL *db, char *parent_name, time_t slot_time){
 //	TODO
+  return 0;
 }
 
 // Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int dm_tofu_timeout_assigned_zone(MYSQL *db, char *parent_name, time_t time_slot){
-  return dm_tofu_timeout_zone(db, parent_name, "assigned", time_slot, DM_TOFU_T3) ;
+int dm_tofu_timeout_assigned_zone(MYSQL *db, char *parent_name, time_t slot_time){
+  return dm_tofu_timeout_zone(db, parent_name, "assigned", slot_time, DM_TOFU_T3) ;
 }
 
 // Batch job to move zones from delegating to delegated
 // returns number of zones timed out or -1 for error
-int dm_tofu_delegating_to_delegated(char *parent_name){
+int dm_tofu_delegating_to_delegated(MYSQL *db, char *parent_name, time_t slot_time){
 //	TODO
+  return 0;
 }
 
 // Check time out for zones stuck in delegated zone_status (that have not had any updates using certificates, probably due to HNA no longer in use).
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
-int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t time_slot){
-  return dm_tofu_timeout_zone(db, parent_name, "delegated", time_slot, DM_TOFU_T4) ;
+int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t slot_time){
+  return dm_tofu_timeout_zone(db, parent_name, "delegated", slot_time, DM_TOFU_T4) ;
 }
 
 // Batch job to move zones from deleting to deleted
 // returns number of zones timed out or -1 for error
-int dm_tofu_deleting_to_deleted(char *parent_name){
+int dm_tofu_deleting_to_deleted(MYSQL *db, char *parent_name, time_t slot_time){
 //	TODO
+  return 0;
 }
 
 // returns an offered zone from the pre-created list in packet format
@@ -1517,7 +1795,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
 
 // function called from server create file for knotc commands
 char *knot_helpers_create_file() {
-   char filename_template[] = "/tmp/KnotcCommandsXXXXXX";
+   char filename_template[] = "/tmp/KnotcCommandsXXXXXX"; // must contain 6*X which are substitued by mkstemp.
    char *filename=(char*)malloc(sizeof(filename_template));
    memset(filename,'\0',sizeof(filename_template));
 
@@ -1540,7 +1818,62 @@ char *knot_helpers_create_file() {
 // function called from server exec knot helper
 int knot_helpers_exec_file(char *filename);
 // function called from server delete file containing knotc commands
-int knot_helpers_delete_file(char *filename);
+int knot_helpers_delete_file(char *filename) {
+  char filename_template[] = "/tmp/KnotcCommands"; // must match prefix in the template above
+  size_t i=0;
+  int cmp=0;
+  int dotcount=0;
+  int ret=0;
+
+  if ((filename==NULL)) {
+    printf("knot_helpers_delete_file: needs a filename\n");
+    return -1;
+  }
+  // poor man's parser sanity check for non-alphanumeric and curious filenames
+  for (i=0;i<strlen(filename);i++) {
+    // allow forward slashes and single dots but not next to each other
+    if ( (filename[i]=='/') || (filename[i]=='.')) {
+      dotcount++;
+      if (dotcount>1) {
+        cmp=-1;
+        break;
+      } else {
+        continue;
+      }
+    }
+    if (isalnum(filename[i])==0) {
+      cmp=-1;
+      break;
+    } else {
+      dotcount=0;
+    }
+  }
+  if (cmp) {
+    printf("knot_helpers_delete_file: filename is too complex %s\n",filename);
+    return cmp;
+  }
+
+  if (strlen(filename)<=strlen(filename_template)) {
+    printf("knot_helpers_delete_file: filename is too short %s\n",filename);
+    return -1;
+  }
+  // sanity check that the prefix is as expected
+  for (i=0;i<strlen(filename_template);i++) {
+    if (filename_template[i]!=filename[i]) {
+      printf("knot_helpers_delete_file: filename does not match prefix %s\n",filename);
+      return -1;
+    }
+  }
+
+  printf("unlink(%s)\n",filename);
+  //ret=unlink(filename);
+  if (filename!=NULL) {
+    free(filename);
+    filename=NULL;
+  }
+  return ret;
+}
+
 
 // function called from server to start backround thread for regular tasks
 dm_tofu_thread_t *dm_tofu_bg_start(int thread_num) {
@@ -1567,6 +1900,7 @@ dm_tofu_thread_t *dm_tofu_bg_start(int thread_num) {
 void *dm_tofu_bg_exec(void *arguments) { // a single storage element with vars for this thread
   dm_tofu_thread_t *ptr;
   ptr =(dm_tofu_thread_t *)arguments;
+  int *ret=NULL;
   while (ptr->run ==1) {
     time_t now=time(NULL);
     time_t start_time_slot=get_time_slot(now);
@@ -1579,12 +1913,16 @@ void *dm_tofu_bg_exec(void *arguments) { // a single storage element with vars f
       printf("dm_tofu_bg_exec: Exec now %li last_time_slot %li start_time_slot%li\n",now,ptr->last_time_slot,start_time_slot);
       // do DM batch work
       dm_tofu_dm_batch(ptr->db);
+      // do NS batch work
+      dm_tofu_ns_batch(ptr->db);
       ptr->last_exec=now;
       ptr->last_time_slot=start_time_slot;
       printf("next awake at %li\n",ptr->last_time_slot+DM_TOFU_SLOT_LENGTH);
     }
   }
+  return (void*)ret; // keep pthread and the compiler happy
 }
+
 // function called from server to stop backround thread for regular tasks
 int dm_tofu_bg_stop(dm_tofu_thread_t **my_thread) { // pointer to a threads
   dm_tofu_thread_t *ptr;

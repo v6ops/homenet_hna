@@ -12,7 +12,8 @@ serverssl_SOURCES = server-ssl.c workqueue.c util.c
 serverssl_LDADD = $(top_builddir)/lib/libhna.la -lssl -lcrypto
 # simple DB test
 testdb_SOURCES = testdb.c dm_tofu.c db.c
-testdb_LDADD = -lmysqlclient
+#testdb_LDADD = -lmysqlclient
+testdb_LDADD = $(top_builddir)/lib/libhna.la -lmysqlclient
 testdb_CFLAGS= -I/usr/include/mysql $(AM_CFLAGS)
 # single thread DM based on libevent, TLS, TOFU (Trust on First Use)
 libevent_tofu_SOURCES = libevent_dm.c dm_worker.c dm_tofu.c db.c util.c

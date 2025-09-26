@@ -22,6 +22,9 @@
 int main(void) {
   dm_tofu_thread_t *my_thread_struct;
   int result_code;
+  MYSQL *db;
+  db=db_init();
+  db_connect(db,DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE);
 
   my_thread_struct = dm_tofu_bg_start(1);
   printf("In main: background thread is created.\n");
@@ -51,31 +54,36 @@ int main(void) {
    struct timeval start, end;
   // start timer.
   gettimeofday(&start, NULL);
-
   printf("start db\n");
+  time_t now = get_time_slot(0);
+
+  printf("create zones at slot %li\n",now);
+  create_zones(db,"homenetdns.com", 5, now-DM_TOFU_SLOT_LENGTH*2);
+  create_zones(db,"homenetdns.com", 5, now);
+
   char *zn=NULL;
-  zn=offer_zone("homenetdns.com","2001:abcd::1",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::1",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::1",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::1",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::2",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::2",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::2",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::2",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::3",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::3",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::3",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::3",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","2001:abcd::4",0);
+  zn=offer_zone(db,"homenetdns.com","2001:abcd::4",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
-  zn=offer_zone("homenetdns.com","",0);
+  zn=offer_zone(db,"homenetdns.com","",0);
   printf("Offered zone %s\n",zn);
   if (zn != NULL) { free(zn); }
   printf("end db\n");
@@ -88,6 +96,10 @@ int main(void) {
   time_taken = (end.tv_sec - start.tv_sec) * 1e6;
   time_taken = (time_taken + (end.tv_usec -
                               start.tv_usec)) * 1e-6;
+
+
+  printf("end db\n");
+  db_close(db);
 
   printf("In main: Time taken by program is %f\n",time_taken);
   sleep(30);

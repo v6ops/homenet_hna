@@ -25,7 +25,6 @@
 #ifndef DM_TOFU_INCLUDED
 #define DM_TOFU_INCLUDED
 
-#define KNOT_EXEC_FILE "home/knot/knotc_exec_file.bash"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,9 +35,13 @@
 #include <pthread.h>
 #include <unistd.h>
 
+// for isalnum
+#include <ctype.h>
+
 #include "db.h"
 #include <ldns/ldns.h>
 #include "../lib/ldns_helpers.h"
+#include "../lib/knot_helpers.h"
 #include "../lib/ssl_helpers.h"
 #include "../lib/workqueue.h"
 #include "ssl_client.h"
@@ -125,6 +128,9 @@
 #include "dict.h"
 #define MYSQL_STRLEN 80
 
+// number of zones to maintain in creating or created status (rate limits how many new zones can be offered in a slot)
+#define DM_TOFU_POOL_SIZE 20
+
 // How long to wait between time slots.
 // longer means more open db entries and pending actions which could lead to timeouts in cert operations
 // Shorter = more load on the DNS server to create records and resign zones
@@ -141,13 +147,14 @@
 			       
 #define MAX_NS_SECONDARY 2                // maximum number of secodnary NS per parent
 
-// A large random int used to make zone names harder to guess by subtracting it from current time.
+// A large random int used to make zone names harder to guess by subtracting it from current time (doEVPSHA256).
 // Change this if you want. There's no dependency.
 // Note: guessing a zone name from a random IP address is only possible in the created state.
 // Once offered they are locked by source IP.
 // Once assigned they are locked by certificate before moving to delegating/delegated.
 // Should be < 17556722000 to avoid making time negative to 1 jan 1970 (unsigned 64 int in DB)
 #define OFFSET 15902842308
+#define DM_TOFU_PRIVATE_KEY "private key123"
 
 // crude round robin on NS names
 // not sensible except for multiple parents running in one infra
@@ -162,7 +169,9 @@ uint32_t hexstr2dec(unsigned char *hex, int len) ;
 // md must be SHA256_DIGEST_LENGTH (32) char long
 //void do_sha256(char *buf, size_t buf_len, unsigned char *md) ;
 //void do_EVP(const unsigned char *message, size_t message_len, unsigned char *digest);
-int do_EVP(const unsigned char *message, size_t message_len, unsigned char **digest, unsigned int *digest_len);
+int do_EVP_SHA256(const unsigned char *message, size_t message_len, unsigned char **digest, unsigned int *digest_len);
+// HMAC version
+int do_EVP_HMACSHA256(const unsigned char *message, size_t message_len, const unsigned char *key, size_t key_len, unsigned char **digest, size_t *digest_len);
 
 // Convert a decimal to a word token
 // Each token represents 10 bits of information (1024 words in the dictionary)
@@ -182,7 +191,7 @@ time_t get_time_slot(time_t time);
 // There can be collisions with existing names because the hash is truncated.
 // A "unique" constraint on `name` will force this insert to fail gracefully.
 // nzones is how many additional zones should be created
-void create_zones(char *parent_name, int nzones ,time_t time_slot);
+void create_zones(MYSQL *db, char *parent_name, int nzones ,time_t time_slot);
 
 // copy from temporary storage to something more permanent that can be returned to caller
  char *dm_tofu_cp_name(char *name);
@@ -218,7 +227,7 @@ void dm_tofu_dm_batch(MYSQL *db);
 int dm_tofu_is_valid_zone_status (char *zone_status);
 
 // update db for the zone  zone_id to new zone_status
-int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status) ;
+int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status, time_t slot_time) ;
 
 // given a parent, return the name of the primary NS name. Remember to free
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
@@ -244,6 +253,9 @@ int dm_tofu_print_ll_zone(ll_zone_t *ll_zone_head);
 int dm_tofu_print_ll_ns(ll_secondary_ns_t *ll_secondary_ns_head);
 int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head);
 
+// count zones under this parent_name with this zone_status
+int dm_tofu_count_zone_status(MYSQL *db, char *parent_name, char *zone_status);
+
 // // create a linked list of zones under this parent_name with this zone_status
 // returns rc or -1 on failure
 int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
@@ -252,7 +264,7 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 // returns number of zones timed out or -1 for error
 // ns is the name of the name server that is being configured
 // (static for now but allows horizontal scaling later)
-int dm_tofu_creating_to_created(char *parent_name);
+int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Check time out for zones stuck in zone_status.
 // Marks zones for deletion, rather than directly actioning
@@ -271,7 +283,7 @@ int dm_tofu_timeout_created_zone(MYSQL *db, char *parent_name, time_t time_slot)
 // The zone is then "locked" to the HNA via IP address
 // This helps prevent race conditions where a zone is assigned,
 // but the associated certificate has not yet been issued.
-char* offer_zone(char *parent_name, char *ip, time_t time_slot); // only one version of ip is supported. Either v4 or v6
+char* offer_zone(MYSQL *db, char *parent_name, char *ip, time_t time_slot); // only one version of ip is supported. Either v4 or v6
 
 // Check time out for zones stuck in offered zone_status (that have not transitioned to assigned).
 // Uses Innodb atomic transaction to ensure completeness.
@@ -281,7 +293,7 @@ int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t time_slot)
 
 // Batch job to move zones from assigning to assigned
 // returns number of zones timed out or -1 for error
-int dm_tofu_assigning_to_assigned(char *parent_name);
+int dm_tofu_assigning_to_assigned(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
 // Marks zones for deletion, rather than directly actioning
@@ -290,7 +302,7 @@ int dm_tofu_timeout_assigned_zone(MYSQL *db, char *parent_name, time_t time_slot
 
 // Batch job to move zones from delegating to delegated
 // returns number of zones timed out or -1 for error
-int dm_tofu_delegating_to_delegated(char *parent_name);
+int dm_tofu_delegating_to_delegated(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Check time out for zones stuck in delegated zone_status (that have not had any updates using certificates, probably due to HNA no longer in use).
 // Marks zones for deletion, rather than directly actioning
@@ -299,7 +311,7 @@ int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t time_slo
 
 // Batch job to move zones from deleting to deleted
 // returns number of zones timed out or -1 for error
-int dm_tofu_deleting_to_deleted(char *parent_name);
+int dm_tofu_deleting_to_deleted(MYSQL *db, char *parent_name, time_t time_slot);
 
 // returns an offered zone from the pre-created list in packet format
  ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) ; // parent_name is the owner. zone is the zone to be delegated
@@ -322,8 +334,6 @@ typedef struct {
 
 // function called from server create file for knotc commands
 char *knot_helpers_create_file();
-// function called from server exec knot helper
-int knot_helpers_exec_file(char *filename);
 // function called from server delete file containing knotc commands
 int knot_helpers_delete_file(char *filename);
 
