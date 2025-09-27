@@ -170,6 +170,7 @@ int do_EVP_HMACSHA256(const unsigned char *message, size_t message_len, const un
     return -1;
   }
   EVP_MD_CTX_destroy(mdctx);
+  EVP_PKEY_free(pkey);
 
   return 0;
 }
@@ -223,8 +224,8 @@ char *make_zone_name (unsigned long seed, int nwords) {
   // zalloc also does memset
   md=(unsigned char *)OPENSSL_zalloc(EVP_MD_size(EVP_sha256()));
   //memset(md,'\0',32*sizeof(unsigned char));
-  unsigned int *digest_length;
-  unsigned int len=EVP_MD_size(EVP_sha256());
+  size_t *digest_length;
+  size_t len=EVP_MD_size(EVP_sha256());
   digest_length=&len;
   int d;        // temp decimal
 
@@ -830,10 +831,12 @@ void dm_tofu_ns_batch(MYSQL *db) {
     while (ll_parent_current!=NULL) {
       // do the NS config updates
       printf("dm_tofu_ns_batch: processing %s\n",ll_parent_current->parent_name);
-      dm_tofu_creating_to_created(db,ll_parent_current->parent_name,slot_time);
-      dm_tofu_assigning_to_assigned(db,ll_parent_current->parent_name,slot_time);
-      dm_tofu_delegating_to_delegated(db,ll_parent_current->parent_name,slot_time);
-      dm_tofu_deleting_to_deleted(db,ll_parent_current->parent_name,slot_time);
+      dm_tofu_ns_update(db,ll_parent_current->parent_name,"creating",slot_time);
+      dm_tofu_ns_update(db,ll_parent_current->parent_name,"deleting",slot_time);
+      //dm_tofu_creating_to_created(db,ll_parent_current->parent_name,slot_time);
+      //dm_tofu_assigning_to_assigned(db,ll_parent_current->parent_name,slot_time);
+      //dm_tofu_delegating_to_delegated(db,ll_parent_current->parent_name,slot_time);
+      //dm_tofu_deleting_to_deleted(db,ll_parent_current->parent_name,slot_time);
       ll_parent_tmp=ll_parent_current->next;
       free(ll_parent_current);
       ll_parent_current=ll_parent_tmp;
@@ -905,6 +908,85 @@ int dm_tofu_is_valid_zone_status (char *zone_status) {
     return 0;
   }
   return -1;
+}
+
+// delete db entry for the zone zone_id
+int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  int rc=0;  // row count
+  MYSQL_RES *result;
+
+  if ( (zone_id<=0)  ) {
+    printf("dm_tofu_delete_zone: needs a valid zone_idname\n");
+    return -1;
+  }
+
+  // delete any associated hna. MYSQL needs to use the TEMP alias.
+  stmt=mysql_stmt_init(db);
+  char *stmt_str1="DELETE FROM infra WHERE infra_id IN (SELECT infra_id FROM (SELECT infra_id FROM infra AS A, zone AS B  WHERE ((B.zone_id=?) AND (B.hna=A.infra_id)) ) AS TEMP);";
+  
+  if (mysql_stmt_prepare(stmt, stmt_str1, strlen(stmt_str1))) {
+    printf ("dm_tofu_delete_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&zone_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_delete_zone: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_delete_zone: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  
+  // delete the zone
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="DELETE FROM zone AS A WHERE ( (A.zone_id=?) );";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_delete_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&zone_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_delete_zone: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_delete_zone: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
 }
 
 // update db for the zone  zone_id to new zone_status
@@ -1085,7 +1167,7 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
   }
 
   stmt=mysql_stmt_init(db);
-  char *stmt_str="SELECT A.name, A.infra_id FROM infra AS A, parent AS B WHERE ( (B.parent_name=?) AND ((A.infra_id = B.ns2) OR (A.infra_id = B.ns3)) ); ";
+  char *stmt_str="SELECT A.infra_id, A.name FROM infra AS A, parent AS B WHERE ( (B.parent_name=?) AND ((A.infra_id = B.ns2) OR (A.infra_id = B.ns3)) ); ";
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("dm_tofu_select_secondary_ns_status: prepare failed. %s\n",mysql_stmt_error(stmt));
@@ -1173,6 +1255,46 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
   return ll_secondary_ns_head; 
 
 } 
+
+// given a parent, return the notify list in knot format  of the secondary NS names. Remember to free the string.
+char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name) {
+  // get the secondary NS for this parent
+  ll_secondary_ns_t *ll_secondary_ns_head=dm_tofu_get_secondary_ns(db, parent_name); 
+  ll_secondary_ns_t *ll_secondary_ns_tmp=NULL;
+  ll_secondary_ns_t *ll_secondary_ns_current=NULL;
+
+  // create a knotc notify list of secondary NS
+  //char notify_list[MYSQL_STRLEN];
+  size_t notify_list_len=MYSQL_STRLEN*3+8;
+  char *notify_list=(char *)malloc(notify_list_len); // big enough for 3 very long NS names plus commas
+  if (notify_list==NULL) {
+    printf("dm_tofu_get_notify_list: Error. Couldn't allocate memory\n");
+    exit(0);
+  }
+  memset(notify_list,'\0',notify_list_len);
+  ll_secondary_ns_current=ll_secondary_ns_head;
+  strcat(notify_list,"[ ");
+  while (ll_secondary_ns_current!=NULL) {
+    if (strlen(notify_list)+3+strlen(ll_secondary_ns_current->ns_name)>=notify_list_len) {
+      printf("dm_tofu_get_notify_list: Warning. NS skipped to avoid buffer overflow %s\n",ll_secondary_ns_current->ns_name);
+      continue;
+    }
+    strcat(notify_list,ll_secondary_ns_current->ns_name);
+    strcat(notify_list,", "); // always add a comma.
+    ll_secondary_ns_tmp=ll_secondary_ns_current->next;
+    free (ll_secondary_ns_current);
+    ll_secondary_ns_current=ll_secondary_ns_tmp;
+  }
+  // strip off last comma and replace with list closure ' ]'
+  if (strlen(notify_list)>2) {
+    notify_list[ (strlen(notify_list)-2) ]=' ';
+    notify_list[ (strlen(notify_list)-1) ]=']';
+  }
+  //printf("notify list %s\n",notify_list);
+  return notify_list;
+}
+
+
 
 // create a linked list of parent where this hostname acts as primary NS
 // returns rc or -1 on failure
@@ -1545,14 +1667,34 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 
 // Batch job to move zones from creating to created
 // returns number of zones timed out or -1 for error
-// ns is the name of the name server that is being configured
-// (static for now but allows horizontal scaling later)
 int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) {
+  return dm_tofu_ns_update(db, parent_name, "creating", slot_time);
+}
+
+// Batch job to move zones from zone_status to new_zone_status
+// returns number of zones timed out or -1 for error
+// trade off between having one complex routine or lots of repeated code
+int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t slot_time) {
   ll_zone_t *ll_zone_head=NULL;
   ll_zone_t *ll_zone_tmp=NULL;
   ll_zone_t *ll_zone_current=NULL;
-  char zone_status_str[]="creating";
-  char new_zone_status_str[]="created";
+
+  if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
+    printf("dm_tofu_ns_update: needs a valid zone status, Got %s\n",zone_status);
+    return -1;
+  }
+
+  char new_zone_status[MYSQL_STRLEN]="";
+
+  if (strcmp(zone_status,"creating")==0) {
+    strcpy(new_zone_status,"created");
+  } else if (strcmp(zone_status,"deleting")==0) {
+    strcpy(new_zone_status,"deleted"); 
+  } else {
+    printf("dm_tofu_ns_update: unsupported zone status %s\n",zone_status);
+    return -1;
+  }
+
   int rc;
 
   char *fn_knotc_config;
@@ -1560,19 +1702,22 @@ int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) 
   char *fn_knotc_zone;
   FILE *fd_knotc_zone;
 
+  char *ns_name;
+  char *notify_list;
+
   time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
   int status=0;
-  printf("dm_tofu_creating_to_created: started\n");
+  printf("dm_tofu_ns_update: started\n");
 
   // get the list of zones in this parent in this status
-  rc=dm_tofu_select_zone_status(db, parent_name, zone_status_str, &ll_zone_head);
+  rc=dm_tofu_select_zone_status(db, parent_name, zone_status, &ll_zone_head);
 
   if (rc==0) {
-    printf("dm_tofu_creating_to_created: nothing to do.\n");
+    printf("dm_tofu_ns_update: nothing to do.\n");
     return rc;
   }
   if (rc<0) {
-    printf("dm_tofu_creating_to_created: Error in dm_tofu_select_zone_status. Nothing to do.\n");
+    printf("dm_tofu_ns_update: Error in dm_tofu_select_zone_status. Nothing to do.\n");
     return rc;
   }
 
@@ -1580,9 +1725,12 @@ int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) 
   ll_zone_current=ll_zone_head;
   int first_pass=1;
 
-  // this pass to create and exec command files for knotc
+  // get the primary NS for this parent
+  ns_name=dm_tofu_get_ns(db,parent_name);
+  notify_list=dm_tofu_get_notify_list(db,parent_name);
+
   while (ll_zone_current!=NULL) {
-    printf("dm_tofu_creating_to_created: processing zone %s\n",ll_zone_current->zone_name);
+    printf("dm_tofu_ns_update: processing zone %s\n",ll_zone_current->zone_name);
 
     if (first_pass==1) {
       first_pass=0;
@@ -1591,7 +1739,7 @@ int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) 
       fn_knotc_config=knot_helpers_create_file();
       fn_knotc_zone=knot_helpers_create_file();
       if ((fn_knotc_config==NULL) || (fn_knotc_zone)==NULL) {
-        printf("dm_tofu_creating_to_created: Error. Can't create temp files.\n");
+        printf("dm_tofu_ns_update: Error. Can't create temp files.\n");
         break;
       }
 
@@ -1599,51 +1747,70 @@ int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) 
       fd_knotc_config=fopen(fn_knotc_config,"w+");
       fd_knotc_zone=fopen(fn_knotc_zone,"w+");
       if ((fd_knotc_config==NULL) || (fd_knotc_zone)==NULL) {
-        printf("dm_tofu_creating_to_created: Error. Can't open temp files.\n");
+        printf("dm_tofu_ns_update: Error. Can't open temp files.\n");
         break;
       }
 
-      // start knotc transactions
-      fprintf(fd_knotc_config,"config-begin\n");
-      fprintf(fd_knotc_zone,"zone-freeze %s\n",ll_zone_current->zone_name);
-      fprintf(fd_knotc_zone,"zone-begin %s\n",ll_zone_current->zone_name);
+      // start knotc transactions for parent
+      fprintf(fd_knotc_config,"conf-begin\n");
+      fprintf(fd_knotc_zone,"zone-freeze %s\n",parent_name);
+      fprintf(fd_knotc_zone,"zone-begin %s\n",parent_name);
     }
 
-    // create zones and config the zone
+    if (strcmp(zone_status,"creating")==0) {
+      // create zones and config a zone file
+      fprintf(fd_knotc_config,"conf-set \'zone[%s]\'\n",ll_zone_current->zone_name);
+      char knotd_home[]=KNOTD_HOME;
+      fprintf(fd_knotc_config,"conf-set \'zone[%s].file\' \'%s/zones/%s.zone\'\n",ll_zone_current->zone_name,knotd_home,ll_zone_current->zone_name);
+      fprintf(fd_knotc_config,"conf-set \'zone[%s].dnssec-signing off \n",ll_zone_current->zone_name); // signing is done by the HNA
+      // we only add the primary later once ACME completes
+
+      // add notifies for secondaries
+      fprintf(fd_knotc_config,"conf-set \'zone[%s].notify %s \n",ll_zone_current->zone_name,notify_list);
+
+      // add the NS delegation to the parent
+      fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
+    } else if (strcmp(zone_status,"deleting")==0) {
+      // delete the zone
+      fprintf(fd_knotc_config,"conf-unset \'zone[%s]\'\n",ll_zone_current->zone_name);
+      // delete the NS delegation in the parent
+      fprintf(fd_knotc_zone,"zone-unset %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
+    }
 
     // get next zone
     ll_zone_tmp=ll_zone_current->next;
 
     if (ll_zone_tmp==NULL) { // last time through?
       // end knotc transactions
-      fprintf(fd_knotc_config,"config-commit\n");
-      fprintf(fd_knotc_zone,"zone-commit %s\n",ll_zone_current->zone_name);
-      fprintf(fd_knotc_zone,"zone-thaw %s\n",ll_zone_current->zone_name);
+      fprintf(fd_knotc_config,"conf-commit\n");
+      fprintf(fd_knotc_zone,"zone-commit %s\n",parent_name);
+      fprintf(fd_knotc_zone,"zone-thaw %s\n",parent_name);
+      fprintf(fd_knotc_zone,"zone-sign %s\n",parent_name);
 
       // close the temp files
       fclose(fd_knotc_config); 
       fclose(fd_knotc_zone); 
 
       // execute the commands via knotc
-      printf("dm_tofu_creating_to_created: executing zone %s\n",ll_zone_current->zone_name);
-      //status=knot_helpers_exec_file(fn_knotc_config);
+      printf("dm_tofu_ns_update: executing zone %s\n",parent_name);
       status=0;
+      //status=knot_helpers_exec_file(fn_knotc_config);
       if (status!=0) {
-        printf("dm_tofu_creating_to_created: warning. Error executing zone config %s\n",ll_zone_current->zone_name);
+        printf("dm_tofu_ns_update: warning. Error executing zone config %s\n",parent_name);
       }
       //status=knot_helpers_exec_file(fn_knotc_zone);
       if (status!=0) {
-        printf("dm_tofu_creating_to_created: warning. Error executing zone content %s\n",ll_zone_current->zone_name);
+        printf("dm_tofu_ns_update: warning. Error executing zone content %s\n",parent_name);
       }
 
       // remove the temp files
       status=knot_helpers_delete_file(fn_knotc_config);
       if (status!=0) {
-        printf("dm_tofu_creating_to_created: warning. Error deleting temp config file %s\n",ll_zone_current->zone_name);
+        printf("dm_tofu_ns_update: warning. Error deleting temp config file %s\n",fn_knotc_config);
       }
       status=knot_helpers_delete_file(fn_knotc_zone);
       if (status!=0) {
-        printf("dm_tofu_creating_to_created: warning. Error deleting temp zone content file %s\n",ll_zone_current->zone_name);
+        printf("dm_tofu_ns_update: warning. Error deleting temp zone content file %s\n",fn_knotc_zone);
       }
     } // end if last time through
     ll_zone_current=ll_zone_tmp;
@@ -1652,14 +1819,26 @@ int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) 
   // this pass to update the zone status in the db and free the linked list
   ll_zone_current=ll_zone_head;
   while (ll_zone_current!=NULL) {
-    printf("dm_tofu_creating_to_created: updating zone %s %li\n",ll_zone_current->zone_name,slot_time);
-    dm_tofu_update_zone_status(db, ll_zone_current->zone_id, new_zone_status_str, slot_time);
+    printf("dm_tofu_ns_update: updating zone %s %li\n",ll_zone_current->zone_name,slot_time);
+    if (strcmp(new_zone_status,"created")==0) {
+      dm_tofu_update_zone_status(db, ll_zone_current->zone_id, new_zone_status, slot_time);
+    } else if (strcmp(new_zone_status,"deleted")==0) {
+      dm_tofu_delete_zone(db, ll_zone_current->zone_id);
+    }
     ll_zone_tmp=ll_zone_current->next;
     free(ll_zone_current);
     ll_zone_current=ll_zone_tmp;
   } // end WHILE ll_zone_current
+
+  // clean up
+  if (ns_name != NULL) {
+   free(ns_name);
+  }
+  if (notify_list != NULL) {
+   free(notify_list);
+  }
    
-  printf("dm_tofu_creating_to_created: ended.\n");
+  printf("dm_tofu_ns_update: ended.\n");
   return rc;
 }
 
@@ -1686,7 +1865,7 @@ int dm_tofu_timeout_zone(MYSQL *db, char *parent_name, char *zone_status, time_t
     return -1;
   }
   if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
-    printf("dm_tofu_timeout_zone: needs a valid zone name\n");
+    printf("dm_tofu_timeout_zone: needs a valid zone status\n");
     return -1;
   }
 

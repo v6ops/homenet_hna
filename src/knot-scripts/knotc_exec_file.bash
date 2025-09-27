@@ -10,10 +10,10 @@ fi
 
 echo $1
 # check for a simple alphanumeric filename with dots
-if [[ $1 =~  ^[a-zA-Z0-9\.]+$ ]]
+if [[ $1 =~  ^[a-zA-Z0-9\.\/]+$ ]]
 then
     echo "file name is OK"
-    knotc -c  /etc/knot/knot.conf< $1
+    knotc -C /var/lib/knot/confdb < $1
     exit 0
 else
     echo "file name is too complex"

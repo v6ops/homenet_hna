@@ -131,6 +131,9 @@
 // number of zones to maintain in creating or created status (rate limits how many new zones can be offered in a slot)
 #define DM_TOFU_POOL_SIZE 20
 
+// home directory of the knotd user. Must have double quotes and no trailing slash
+#define KNOTD_HOME "/home/knot"
+
 // How long to wait between time slots.
 // longer means more open db entries and pending actions which could lead to timeouts in cert operations
 // Shorter = more load on the DNS server to create records and resign zones
@@ -226,11 +229,17 @@ void dm_tofu_dm_batch(MYSQL *db);
 // 0 = valid. -1 = not valid
 int dm_tofu_is_valid_zone_status (char *zone_status);
 
+// delete db entry for zone with this zone_id
+int dm_tofu_delete_zone(MYSQL *db, int zone_id);
+
 // update db for the zone  zone_id to new zone_status
 int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status, time_t slot_time) ;
 
 // given a parent, return the name of the primary NS name. Remember to free
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
+
+// given a parent, return the notify list (in knot format) of the secondary NS names. Remember to free
+char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name);
 
 // linked list needed for dm_tofu_get_secondary_ns
 typedef struct ll_secondary_ns {
@@ -260,10 +269,13 @@ int dm_tofu_count_zone_status(MYSQL *db, char *parent_name, char *zone_status);
 // returns rc or -1 on failure
 int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
 
+
+// Batch job to move zones from zone_status to new zone_status e.g. creating to created
+// returns number of zones timed out or -1 for error
+int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t slot_time);
+
 // Batch job to move zones from creating to created
 // returns number of zones timed out or -1 for error
-// ns is the name of the name server that is being configured
-// (static for now but allows horizontal scaling later)
 int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t time_slot);
 
 // Check time out for zones stuck in zone_status.
