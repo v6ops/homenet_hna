@@ -4,63 +4,60 @@ use dm;
 
 CREATE USER IF NOT EXISTS 'knot'@'localhost' IDENTIFIED BY 'Kn0tpassword!';
 
-DROP TABLE IF EXISTS parent; /* static table created at system configuration time                                        */
+DROP TABLE IF EXISTS parent;     /* static table created at system configuration time                                        */
 CREATE TABLE parent (parent_id INT AUTO_INCREMENT,
-       parent_name VARCHAR(80),     /*  the root of the name structure that is being delegated */
-       dm1 INT DEFAULT 0,    /* primary DM - responsible for scheduled tasks related to the lifecycle delegation process */
-       dm2 INT DEFAULT 0,    /* secondary DM - back up for scheduled tasks related to the lifecycle delegation process   */
-                             /* primary and secondary DM can run odd and even time slots for simple failover             */
-       ns1 INT DEFAULT 0,    /* primary NS - adds DS RR and TXT RR for ACME and DNSSEC to parent zone                    */
-       ns2 INT DEFAULT 0,    /* when using catalogue zones, just used for NOTIFY in primary NS                           */ 
-       ns3 INT DEFAULT 0,    /* when using catalogue zones, just used for NOTIFY in primary NS                           */ 
+       parent_name VARCHAR(80),  /* the root of the name structure that is being delegated                                   */
+       dm1 INT DEFAULT 0,        /* primary DM - responsible for scheduled tasks related to the lifecycle delegation process */
+       dm2 INT DEFAULT 0,        /* secondary DM - back up for scheduled tasks related to the lifecycle delegation process   */
+                                 /* primary and secondary DM can run odd and even time slots for simple failover             */
+       ns1 INT DEFAULT 0,        /* primary NS - adds DS RR and TXT RR for ACME and DNSSEC to parent zone                    */
+       ns2 INT DEFAULT 0,        /* when using catalogue zones, just used for NOTIFY in primary NS                           */ 
+       ns3 INT DEFAULT 0,        /* when using catalogue zones, just used for NOTIFY in primary NS                           */ 
        PRIMARY KEY (parent_id) );
 
 DROP TABLE IF EXISTS infra;
 CREATE TABLE infra (infra_id INT AUTO_INCREMENT,
-       name VARCHAR(80),     /* fqdn - used to key to parent for any name-> address translation in config */
-       hostname VARCHAR(80), /* short name - used to pin functions to hosts                               */
+       name VARCHAR(80),         /* fqdn - used to key to parent for any name-> address translation in config */
+       hostname VARCHAR(80),     /* short name - used to pin functions to hosts                               */
        ipv4 VARCHAR(15) DEFAULT NULL,
        ipv6 VARCHAR(39) DEFAULT NULL,
        /* timing of lifecycle, so other programs can pick this up   */
-       created    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
-       assigned   BIGINT UNSIGNED DEFAULT 0, /* HNA assigned the name */ 
-       delegated  BIGINT UNSIGNED DEFAULT 0, /* added NS glue */ 
-       deleted    BIGINT UNSIGNED DEFAULT 0, /* infra no longer used: to be deleted */
-       last_login BIGINT UNSIGNED DEFAULT 0, /* last connection authenticated via a cert */
+       -- created    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
+       -- assigned   BIGINT UNSIGNED DEFAULT 0, /* HNA assigned the name */ 
+       -- delegated  BIGINT UNSIGNED DEFAULT 0, /* added NS glue */ 
+       -- deleted    BIGINT UNSIGNED DEFAULT 0, /* infra no longer used: to be deleted */
        infra_status ENUM ('creating','created','deleting'), /* current status for state machine */
        infra_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        node_type ENUM ('hna','dm','ns'), 
        PRIMARY KEY (infra_id) );
 
-DROP TABLE IF EXISTS zone;
+DROP TABLE IF EXISTS zone;       /* the delegated zones */
 CREATE TABLE zone (zone_id INT AUTO_INCREMENT,
-       zone_name VARCHAR(80),  /* the FQDN of the zone in ascii */
-       cn VARCHAR(80),    /* the CN of the associated cert in ascii */
-       parent_name VARCHAR(80),/* name of the parent zone in ascii */
-                               /* not normalised to simplify queries */
-       /* timing of lifecycle, so other programs can pick this up   */
-       -- created    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
-       -- offered    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
-       -- assigned   BIGINT UNSIGNED DEFAULT 0, /* HNA assigned the name */ 
-       -- delegating BIGINT UNSIGNED DEFAULT 0, /* sent AXFR  add NS glue*/ 
-       -- delegated  BIGINT UNSIGNED DEFAULT 0, /* added DS glue */ 
-       -- deleting   BIGINT UNSIGNED DEFAULT 0, /* zone no longer used: to be deleted */
-       -- deleted   BIGINT UNSIGNED DEFAULT 0, /* infra no longer used: to be deleted */
-       hna INT DEFAULT 0, /* the hna asscoiated with this zone  keyed in the infra table*/
+       zone_name VARCHAR(80),    /* the FQDN of the zone in ascii */
+       cn VARCHAR(80),           /* the CN of the associated cert in ascii */
+       last_login BIGINT UNSIGNED DEFAULT 0, /* last connection authenticated via a cert */
+       parent_name VARCHAR(80),  /* name of the parent zone in ascii */
+                                 /* not normalised to simplify queries */
+       hna INT DEFAULT 0,        /* the hna associated with this zone keyed in the infra table */
        zone_status ENUM ('creating','created','offered','assigning','assigned','delegating','delegated','deleting'), /* current status for state machine */
        zone_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        UNIQUE(zone_name),                        /* enforce zone names as unique */
        PRIMARY KEY (zone_id));
 
-DROP TABLE IF EXISTS rr;
+DROP TABLE IF EXISTS rr;         /* RR associated with the delegated zones */
 CREATE TABLE rr (rr_id INT AUTO_INCREMENT,
-       owner VARCHAR(80),
-       /* ns rr are used to add primary to DNS delegation, txt rr are added to primary zone for ACME, ds rr are added to primary zone for checking DNSSEC signing */
-       type ENUM ('ns','ds','txt'),  
-       rdata VARCHAR(80),
-       /* timing of lifecycle, so other programs can pick this up   */
+       zone_id INT DEFAULT 0,    /* link to zone */
+       rr_owner VARCHAR(80),     /* the owner of this RR i.e. what is queried */
+       rr_ttl INT DEFAULT 3600,  /* TTL for this RR */
+       rr_type ENUM ('NS','DS','TXT'),  
+
+                                 /* NS rr are used to add primary to DNS delegation. They are added to the delegated zone config.
+                                 /* TXT rr are added to delegated zone RRs for ACME challenge, but only until the delegation completes */
+                                 /* DS rr are added to parent zone for checking DNSSEC signing */
+       rr_rdata VARCHAR(80),        /* the content associated with this owner */
+                                 /* timing of lifecycle, so other programs can pick this up   */
        rr_status ENUM ('creating','created','deleting'), /* current status for state machine */
-       -- deleted is equivalent to not exist so no explicit state defined
+                                 -- deleted is equivalent to not exist so no explicit state defined
        rr_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        PRIMARY KEY (rr_id) );
 

@@ -26,7 +26,6 @@ CREATE TABLE infra (infra_id INT AUTO_INCREMENT,
        assigned   BIGINT UNSIGNED DEFAULT 0, /* HNA assigned the name */ 
        delegated  BIGINT UNSIGNED DEFAULT 0, /* added NS glue */ 
        deleted    BIGINT UNSIGNED DEFAULT 0, /* infra no longer used: to be deleted */
-       last_login BIGINT UNSIGNED DEFAULT 0, /* last connection authenticated via a cert */
        infra_status ENUM ('creating','created','deleting'), /* current status for state machine */
        infra_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        node_type ENUM ('hna','dm','ns'), 
@@ -36,31 +35,28 @@ DROP TABLE IF EXISTS zone;
 CREATE TABLE zone (zone_id INT AUTO_INCREMENT,
        zone_name VARCHAR(80),  /* the FQDN of the zone in ascii */
        cn VARCHAR(80),    /* the CN of the associated cert in ascii */
+       last_login BIGINT UNSIGNED DEFAULT 0, /* last connection authenticated via a cert */
        parent_name VARCHAR(80),/* name of the parent zone in ascii */
                                /* not normalised to simplify queries */
-       /* timing of lifecycle, so other programs can pick this up   */
-       -- created    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
-       -- offered    BIGINT UNSIGNED DEFAULT 0, /* initial name creation */
-       -- assigned   BIGINT UNSIGNED DEFAULT 0, /* HNA assigned the name */ 
-       -- delegating BIGINT UNSIGNED DEFAULT 0, /* sent AXFR  add NS glue*/ 
-       -- delegated  BIGINT UNSIGNED DEFAULT 0, /* added DS glue */ 
-       -- deleting   BIGINT UNSIGNED DEFAULT 0, /* zone no longer used: to be deleted */
-       -- deleted   BIGINT UNSIGNED DEFAULT 0, /* infra no longer used: to be deleted */
        hna INT DEFAULT 0, /* the hna asscoiated with this zone  keyed in the infra table*/
        zone_status ENUM ('creating','created','offered','assigning','assigned','delegating','delegated','deleting'), /* current status for state machine */
        zone_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        UNIQUE(zone_name),                        /* enforce zone names as unique */
        PRIMARY KEY (zone_id));
 
-DROP TABLE IF EXISTS rr;
+DROP TABLE IF EXISTS rr;         /* RR associated with the delegated zones */
 CREATE TABLE rr (rr_id INT AUTO_INCREMENT,
-       owner VARCHAR(80),
-       /* ns rr are used to add primary to DNS delegation, txt rr are added to primary zone for ACME, ds rr are added to primary zone for checking DNSSEC signing */
-       type ENUM ('ns','ds','txt'),  
-       rdata VARCHAR(80),
-       /* timing of lifecycle, so other programs can pick this up   */
+       zone_id INT DEFAULT 0,    /* link to zone */
+       owner VARCHAR(80),        /* the owner of this RR i.e. what is queried */
+       TTL INT DEFAULT 3600,     /* TTL for this RR */
+       type ENUM ('NS','DS','TXT'),
+                                 /* NS rr are used to add primary to DNS delegation. They are added to the delegated zone config.
+                                 /* TXT rr are added to delegated zone RRs for ACME challenge, but only until the delegation completes */
+                                 /* DS rr are added to parent zone for checking DNSSEC signing */
+       rdata VARCHAR(80),        /* the content associated with this owner */
+                                 /* timing of lifecycle, so other programs can pick this up   */
        rr_status ENUM ('creating','created','deleting'), /* current status for state machine */
-       -- deleted is equivalent to not exist so no explicit state defined
+                                 -- deleted is equivalent to not exist so no explicit state defined
        rr_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
        PRIMARY KEY (rr_id) );
 
@@ -78,6 +74,8 @@ INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) V
 -- homenet dns is our only parent domain at this time
 INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('homenetdns.com',3,4,1,2,5);
 INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('homenetdns2.com',3,4,2,5,1);
+INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('long.homenetdns2.com',3,4,2,5,1);
+INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('ng.homenetdns2.com',3,4,2,5,1);
 -- test zone timeouts
 INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_created.homenetdns.com','homenetdns.com','created',3600);
 INSERT INTO zone (`zone_name`,`parent_name`,`zone_status`,`zone_status_time`) VALUES ('stuck_in_offered.homenetdns.com','homenetdns.com','offered',3600);

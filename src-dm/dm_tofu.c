@@ -76,6 +76,24 @@ int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head) {
   return rc;
 }
 
+// print a linked list of cwrrparent. Remember to set point to NULL on return.
+int dm_tofu_print_ll_rr(ll_rr_t *ll_rr_head) {
+
+  ll_rr_t *ll_rr_tmp=NULL;
+  ll_rr_t *ll_rr_current=NULL;
+  ll_rr_current=ll_rr_head;
+  int rc=0;
+  while (ll_rr_current != NULL) {
+    printf("rr_owner %s rr_id %i rr_ttl %i rr_type %s rr_rdata %s\n",ll_rr_current->rr_owner,ll_rr_current->rr_id,ll_rr_current->rr_ttl,ll_rr_current->rr_type,ll_rr_current->rr_rdata);
+    ll_rr_tmp=ll_rr_current->next;
+    free(ll_rr_current);
+    ll_rr_current=ll_rr_tmp;
+    rc++;
+  }
+  return rc;
+}
+
+
 
 // crude round robin on NS names
 // not sensible except for multiple parents running in one infra
@@ -910,6 +928,70 @@ int dm_tofu_is_valid_zone_status (char *zone_status) {
   return -1;
 }
 
+// check for a valid 4xirrzone_status as this is an ENUM type in SQL.
+// ('creating','created','deleting')
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_rr_status (char *rr_status) {
+
+  if ( (rr_status==NULL) || (strlen(rr_status)<7) ) {
+    return -1;
+  }
+  if ( (strcmp(rr_status,"creating")==0) || (strcmp(rr_status,"created")==0) \
+	  || (strcmp(rr_status,"deleting")==0) ) {
+    return 0;
+  }
+  return -1;
+}
+
+// delete db entry for the rr rr_id
+int dm_tofu_delete_rr(MYSQL *db, int rr_id) {
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  int rc=0;  // row count
+  MYSQL_RES *result;
+
+  if ( (rr_id<=0)  ) {
+    printf("dm_tofu_delete_rr: needs a valid rr_id\n");
+    return -1;
+  }
+
+  // delete the rr
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="DELETE FROM rr AS A WHERE ( (A.rr_id=?) );";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_delete_rr: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&rr_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_delete_rr: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_delete_rr: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
+}
+
 // delete db entry for the zone zone_id
 int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
 
@@ -920,11 +1002,42 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
   MYSQL_RES *result;
 
   if ( (zone_id<=0)  ) {
-    printf("dm_tofu_delete_zone: needs a valid zone_idname\n");
+    printf("dm_tofu_delete_zone: needs a valid zone_id\n");
     return -1;
   }
 
-  // delete any associated hna. MYSQL needs to use the TEMP alias.
+  // delete any associated rr from the db. The knotc set and unset commands have already been handled.
+  stmt=mysql_stmt_init(db);
+  char *stmt_str2="DELETE FROM rr AS A WHERE ((A.zone_id=?) );";
+  
+  if (mysql_stmt_prepare(stmt, stmt_str2, strlen(stmt_str2))) {
+    printf ("dm_tofu_delete_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&zone_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_delete_zone: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_delete_zone: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+  
+  // delete any associated hna from the db. MYSQL needs to use the TEMP alias.
   stmt=mysql_stmt_init(db);
   char *stmt_str1="DELETE FROM infra WHERE infra_id IN (SELECT infra_id FROM (SELECT infra_id FROM infra AS A, zone AS B  WHERE ((B.zone_id=?) AND (B.hna=A.infra_id)) ) AS TEMP);";
   
@@ -953,6 +1066,7 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
   result=mysql_use_result(db);
   rc=mysql_affected_rows(db);
   mysql_free_result(result);
+  mysql_stmt_close(stmt);
   
   // delete the zone
   stmt=mysql_stmt_init(db);
@@ -989,7 +1103,67 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
 
 }
 
-// update db for the zone  zone_id to new zone_status
+// update db for the rr rr_id to new rr_status
+int dm_tofu_update_rr_status(MYSQL *db, int rr_id, char *rr_status, time_t slot_time) {
+
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[3];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  MYSQL_RES *result;
+
+  if ( (rr_status==NULL) || (dm_tofu_is_valid_rr_status(rr_status)) ) {
+    printf("dm_tofu_update_rr_status: needs a valid rr status\n");
+    return -1;
+  }
+  time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="UPDATE rr AS A SET rr_status=?, rr_status_time=? WHERE ( (A.rr_id=?) );";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_update_rr_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)rr_status;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(rr_status);
+  bind[0].length= &len1;
+  bind[1].buffer_type= MYSQL_TYPE_LONGLONG;
+  bind[1].buffer= (char *)&start_slot;
+  bind[1].is_null= 0;
+  bind[1].length= 0;
+  bind[2].buffer_type= MYSQL_TYPE_LONG;
+  bind[2].buffer= (char *)&rr_id;
+  bind[2].is_null= 0;
+  bind[2].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_update_rr_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_update_rr_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  result=mysql_use_result(db);
+  rc=mysql_affected_rows(db);
+  mysql_free_result(result);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
+}
+
+// update db for the zone zone_id to new zone_status
 int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status, time_t slot_time) {
 
   MYSQL_STMT *stmt;
@@ -1000,7 +1174,7 @@ int dm_tofu_update_zone_status(MYSQL *db, int zone_id, char *zone_status, time_t
   MYSQL_RES *result;
 
   if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
-    printf("dm_tofu_update_zone_status: needs a valid zone name\n");
+    printf("dm_tofu_update_zone_status: needs a valid zone status\n");
     return -1;
   }
   time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
@@ -1439,9 +1613,105 @@ int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *typ
   return rc;
 }
 
-// create a linked list of parent under this hostname for DM
-// returns rc or -1 on failure
-int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head);
+
+// given a zone_name, return the longest matchcreate a linked list of parent under this hostname for DM
+// returns parent_name or NULL on failure or no match
+// remember to free
+char *dm_tofu_get_parent(MYSQL *db, char *zone_name) {
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  int zone_count=0;
+  int count=0;
+  char parent_name[MYSQL_STRLEN];
+  memset(parent_name, '\0', MYSQL_STRLEN);
+
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (zone_name==NULL) || (strlen(zone_name)<2) ) {
+    printf("dm_tofu_get_parent: needs a zone name\n");
+    return NULL;
+  }
+
+  stmt=mysql_stmt_init(db);
+  // regexp (literal dot)<parent_name with dots escaped><anchored to end of string>
+  // results sorted by length, longest first, take only the first entry
+  // first \ escape is for C string, then a second for SQL string parsing
+  char *stmt_str="SELECT parent_name FROM parent AS A WHERE ? REGEXP concat('\\\\.',REPLACE(A.parent_name,'.','\\\\.'),'$') ORDER BY length(A.parent_name) DESC LIMIT 1;";
+  //printf ("stmt_str :%s:\n",stmt_str);
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_get_parent: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_get_parent: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_get_parent: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* STRING COLUMN parent_name */
+  bindout[0].buffer_type= MYSQL_TYPE_STRING;
+  bindout[0].buffer= (char *)&parent_name;
+  bindout[0].buffer_length= MYSQL_STRLEN;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read.
+  rc=0;  // row count. should always be 0 or 1
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      // printf ("dm_tofu_get_parent: No match\n");
+      mysql_stmt_close(stmt);
+      return NULL;
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      // printf ("dm_tofu_get_parent: normal end \n");
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_get_parent: Error. Can't check zone name for parent_name %s %s\n",zone_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } 
+    // We have data to return
+    // printf("rc %i zone_name %s parent_name %s\n",rc,zone_name,parent_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  // printf("returning %s\n",parent_name);
+  return dm_tofu_cp_name(parent_name);
+}
+
 
 // count zones under this parent with this zone_status
 // returns rc or -1 on failure
@@ -1670,14 +1940,35 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
 int dm_tofu_creating_to_created(MYSQL *db, char *parent_name, time_t slot_time) {
   return dm_tofu_ns_update(db, parent_name, "creating", slot_time);
 }
+// Batch job to move zones from assigning to assigned
+// returns number of zones timed out or -1 for error
+int dm_tofu_assigning_to_assigned(MYSQL *db, char *parent_name, time_t slot_time){
+  return dm_tofu_ns_update(db, parent_name, "assigning", slot_time);
+}
+
 
 // Batch job to move zones from zone_status to new_zone_status
 // returns number of zones timed out or -1 for error
-// trade off between having one complex routine or lots of repeated code
+// trade off between having one complex routine or lots of repeated code.
+// We chose for one complex routine because the work per transition is relatively small.
 int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t slot_time) {
   ll_zone_t *ll_zone_head=NULL;
   ll_zone_t *ll_zone_tmp=NULL;
   ll_zone_t *ll_zone_current=NULL;
+
+  ll_rr_t *ll_rr_head=NULL;
+  ll_rr_t *ll_rr_tmp=NULL;
+  ll_rr_t *ll_rr_current=NULL;
+
+  typedef struct ll_rr_update { // only used here to track db changes
+    int rr_id;
+    char rr_status[MYSQL_STRLEN];
+    struct ll_rr_update *next;
+  } ll_rr_update_t;
+
+  ll_rr_update_t *ll_rr_update_head=NULL; // remember rr_id and rr_status for db updates
+  ll_rr_update_t *ll_rr_update_current=NULL;
+  ll_rr_update_t *ll_rr_update_tmp=NULL;
 
   if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
     printf("dm_tofu_ns_update: needs a valid zone status, Got %s\n",zone_status);
@@ -1690,12 +1981,14 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
     strcpy(new_zone_status,"created");
   } else if (strcmp(zone_status,"deleting")==0) {
     strcpy(new_zone_status,"deleted"); 
+  } else if (strcmp(zone_status,"assigning")==0) {
+    strcpy(new_zone_status,"assigned"); 
   } else {
     printf("dm_tofu_ns_update: unsupported zone status %s\n",zone_status);
     return -1;
   }
 
-  int rc;
+  int rc,rc2;
 
   char *fn_knotc_config;
   FILE *fd_knotc_config;
@@ -1770,12 +2063,63 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
 
       // add the NS delegation to the parent
       fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
+
+      // There can't be any rr in creating state at this time. Nothing to do.
+
     } else if (strcmp(zone_status,"deleting")==0) {
-      // delete the zone
+      // unset the zone
       fprintf(fd_knotc_config,"conf-unset \'zone[%s]\'\n",ll_zone_current->zone_name);
-      // delete the NS delegation in the parent
+      // unset the NS delegation in the parent
       fprintf(fd_knotc_zone,"zone-unset %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
-    }
+
+      // get the list of TXT and DS rr in this zone in created status and unset them in the parent zone
+      rc2=dm_tofu_select_rr_status(db, ll_zone_current->zone_id, "created", &ll_rr_head);
+      if( rc2>0) {
+        ll_rr_current=ll_rr_head;
+        while (ll_rr_current!=NULL) {
+	  if ( (strcmp(ll_rr_current->rr_type,"TXT")==0) || (strcmp(ll_rr_current->rr_type,"DS")==0) ) {
+            printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);
+            fprintf(fd_knotc_zone,"zone-unset %s %s %i %s %s\n",parent_name,ll_rr_current->rr_owner,ll_rr_current->rr_ttl,ll_rr_current->rr_type,ll_rr_current->rr_rdata);
+	  }
+          // get next rr
+          ll_rr_tmp=ll_rr_current->next;
+	  free(ll_rr_current);
+	  ll_rr_current=ll_rr_tmp;
+	}
+      } // end rc>2 (we have RR to delete)
+      ll_rr_head=NULL;
+    } else if (strcmp(zone_status,"assigning")==0) {
+      // get the list of TXT rr in this zone in creating status and set them in the parent zone
+      rc2=dm_tofu_select_rr_status(db, ll_zone_current->zone_id, "creating", &ll_rr_head);
+      if( rc2>0) {
+        ll_rr_current=ll_rr_head;
+        while (ll_rr_current!=NULL) {
+	  if ( (strcmp(ll_rr_current->rr_type,"TXT")==0) ) { // only add TXT types in creating status
+            printf("dm_tofu_ns_update: assigning rr %s\n",ll_rr_current->rr_owner);
+            fprintf(fd_knotc_zone,"zone-set %s %s %i %s %s\n",parent_name,ll_rr_current->rr_owner,ll_rr_current->rr_ttl,ll_rr_current->rr_type,ll_rr_current->rr_rdata);
+	    // remember rr_id for db status update after exec command file
+	    ll_rr_tmp=(ll_rr_t *)malloc(sizeof(ll_rr_t));
+	    if(ll_rr_update_tmp==NULL) {
+	      printf("dm_tofu_ns_update: Error. Can't allocate memory\n");
+	    }
+	    if (ll_rr_update_head==NULL) {
+              ll_rr_update_head=ll_rr_update_tmp;
+              ll_rr_update_current=ll_rr_update_tmp;
+	    } else {
+	      ll_rr_update_current->next=ll_rr_update_tmp;
+	      ll_rr_update_current=ll_rr_update_tmp;
+	    }
+	    ll_rr_update_current->rr_id=ll_rr_current->rr_id;
+	    strcpy(ll_rr_update_current->rr_status,"created");
+	  }
+          // get next rr
+          ll_rr_tmp=ll_rr_current->next;
+	  free(ll_rr_current);
+	  ll_rr_current=ll_rr_tmp;
+	}
+      } // end rc>2 (we have RR to create)
+      ll_rr_head=NULL;
+    } // end if assigning
 
     // get next zone
     ll_zone_tmp=ll_zone_current->next;
@@ -1791,7 +2135,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       fclose(fd_knotc_config); 
       fclose(fd_knotc_zone); 
 
-      // execute the commands via knotc
+      // execute the commands via knotc. TODO improve status checking for failed command files.
       printf("dm_tofu_ns_update: executing zone %s\n",parent_name);
       status=0;
       //status=knot_helpers_exec_file(fn_knotc_config);
@@ -1815,6 +2159,21 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
     } // end if last time through
     ll_zone_current=ll_zone_tmp;
   } // end WHILE ll_zone_current
+ 
+  // this pass to update the rr status in the db and free the linked list. This covers all zones under this parent in one go.
+  ll_rr_update_current=ll_rr_update_head;
+  while (ll_rr_update_current!=NULL) {
+    printf("dm_tofu_ns_update: updating rr %i %li\n",ll_rr_update_current->rr_id,slot_time);
+    if (strcmp(ll_rr_update_current->rr_status,"created")==0) {
+      dm_tofu_update_rr_status(db, ll_rr_update_current->rr_id, ll_rr_update_current->rr_status, slot_time);
+    } else if (strcmp(ll_rr_update_current->rr_status,"deleted")==0) {
+      dm_tofu_delete_rr(db, ll_rr_update_current->rr_id);
+    }
+    ll_rr_update_tmp=ll_rr_update_current->next;
+    free(ll_rr_update_current);
+    ll_rr_update_current=ll_rr_update_tmp;
+  } // end WHILE ll_rr_update_current
+  ll_rr_update_head=NULL;
 
   // this pass to update the zone status in the db and free the linked list
   ll_zone_current=ll_zone_head;
@@ -1925,13 +2284,6 @@ int dm_tofu_timeout_offered_zone(MYSQL *db, char *parent_name, time_t slot_time)
   return dm_tofu_timeout_zone(db, parent_name, "offered", slot_time, DM_TOFU_T2) ;
 }
 
-// Batch job to move zones from assigning to assigned
-// returns number of zones timed out or -1 for error
-int dm_tofu_assigning_to_assigned(MYSQL *db, char *parent_name, time_t slot_time){
-//	TODO
-  return 0;
-}
-
 // Check time out for zones stuck in assigned zone_status (that have not transitioned to delegated).
 // Marks zones for deletion, rather than directly actioning
 // returns number of zones timed out or -1 for error
@@ -1958,6 +2310,126 @@ int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t slot_tim
 int dm_tofu_deleting_to_deleted(MYSQL *db, char *parent_name, time_t slot_time){
 //	TODO
   return 0;
+}
+
+// create a linked list of rr under this zone with this rr_status
+// returns rc or -1 on failure
+int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **ll_rr_head) {
+
+  ll_rr_t *ll_rr_tmp=NULL;
+  ll_rr_t *ll_rr_current=NULL;
+
+  char rr_owner[MYSQL_STRLEN];
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(bind));
+  unsigned int rr_id;
+  size_t len1;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[2];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[2];
+  bool is_null[2];
+  bool error[2];
+
+  if ( zone_id<=0 ) {
+    printf("dm_tofu_select_rr_status: needs a zone id\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.rr_id, A.owner FROM rr AS A WHERE A.zone_id=? AND A.rr_status=?; ";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_rr_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&zone_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  bind[1].buffer_type= MYSQL_TYPE_STRING;
+  bind[1].buffer= (char *)rr_status;
+  bind[1].buffer_length= MYSQL_STRLEN;
+  bind[1].is_null= 0;
+  len1=strlen(rr_status);
+  bind[1].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_rr_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_rr_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN rr_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&rr_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+
+  /* STRING COLUMN rr_owner */
+  bindout[1].buffer_type= MYSQL_TYPE_STRING;
+  bindout[1].buffer= (char *)&rr_owner;
+  bindout[1].buffer_length= MYSQL_STRLEN;
+  bindout[1].is_null= &is_null[1];
+  bindout[1].length= &length[1];
+  bindout[1].error= &error[1];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_rr_status: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_select_rr_status: Error. Can't check rr status for zone_id %i %s\n",zone_id,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } 
+    // We have data to return in a single linked list
+    printf("rc %i rr_owner %.*s id %i\n",rc,(int)length[1],rr_owner,rr_id);
+    ll_rr_tmp=(ll_rr_t*)malloc(sizeof(ll_rr_t));
+    if (ll_rr_tmp==NULL) {
+      printf("dm_tofu_select_rr_status: Error. Cannot allocate memory\n");
+      exit (0);
+    }
+    memset(ll_rr_tmp,'\0',sizeof(ll_rr_t));
+    ll_rr_tmp->next=NULL;
+    // remember the head 1st time through
+    if (*ll_rr_head==NULL) {
+      // ll_rr_head is pointer to pointer so content can be updated to this new storage
+      *ll_rr_head=ll_rr_tmp;
+    } else {
+      ll_rr_current->next=ll_rr_tmp;
+    }
+    ll_rr_current=ll_rr_tmp;
+    ll_rr_current->rr_id=rr_id;
+    strcpy(ll_rr_current->rr_owner,rr_owner);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
 }
 
 // returns an offered zone from the pre-created list in packet format

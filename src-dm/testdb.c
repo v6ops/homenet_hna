@@ -39,6 +39,82 @@ printf("len %li\n",*digest_len);
 exit(0);
 */
 
+  char zn[MYSQL_STRLEN];
+  char *pn;
+  memset(zn,'\0',MYSQL_STRLEN);
+  pn=NULL;
+  strcpy(zn,"a..omenetdns.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULL\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  pn=NULL;
+  strcpy(zn,"h.omenetdns.com");
+  //pn=dm_tofu_get_parent(db,zn);
+  printf("3\n");
+  if (pn!=NULL) {
+    printf("4\n");
+    printf("zn %s pn %s\n",zn,pn);
+    printf("4a\n");
+    free(pn);
+  printf("5\n");
+  }else {
+    printf("zn %s pn NULL\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  pn=NULL;
+  strcpy(zn,"a.homenetdns2.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULLs\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  pn=NULL;
+  strcpy(zn,"a.l.ng.homenetdns2.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULLs\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  strcpy(zn,"l.ong.homenetdns2.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULLs\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  strcpy(zn,"a.long.homenetdns2.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULLs\n",zn);
+  }
+  memset(zn,'\0',MYSQL_STRLEN);
+  strcpy(zn,"very.long.homenetdns2.com");
+  pn=dm_tofu_get_parent(db,zn);
+  if (pn!=NULL) {
+    printf("zn %s pn %s\n",zn,pn);
+    free(pn);
+  }else {
+    printf("zn %s pn NULLs\n",zn);
+  }
+
+  exit(0);
+
   ll_zone_t *ll_zone_head=NULL;
   dm_tofu_select_zone_status(db,"homenetdns.com","creating",&ll_zone_head);
   printf("hello\n");

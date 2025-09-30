@@ -229,14 +229,28 @@ void dm_tofu_dm_batch(MYSQL *db);
 // 0 = valid. -1 = not valid
 int dm_tofu_is_valid_zone_status (char *zone_status);
 
+// check for a valid rr_status as this is an ENUM type in SQL.
+// ('creating','created','deleting')
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_rr_status (char *rr_status) ;
+
 // delete db entry for zone with this zone_id
 int dm_tofu_delete_zone(MYSQL *db, int zone_id);
 
-// update db for the zone  zone_id to new zone_status
+// delete db entry for rr with this rr_id
+int dm_tofu_delete_rr(MYSQL *db, int rr_id);
+
+// update db for the rr rr_id to new rr_status
+int dm_tofu_update_rr_status(MYSQL *db, int rr_id, char *rr_status, time_t slot_time);
+
+// update db for the zone zone_id to new zone_status
 int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status, time_t slot_time) ;
 
 // given a parent, return the name of the primary NS name. Remember to free
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
+
+// given a zone_name, return the name of the parent. Remember to free
+char *dm_tofu_get_parent(MYSQL *db, char *zone_name);
 
 // given a parent, return the notify list (in knot format) of the secondary NS names. Remember to free
 char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name);
@@ -324,6 +338,23 @@ int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t time_slo
 // Batch job to move zones from deleting to deleted
 // returns number of zones timed out or -1 for error
 int dm_tofu_deleting_to_deleted(MYSQL *db, char *parent_name, time_t time_slot);
+
+// linked list needed for dm_tofu_select_rr_status
+typedef struct ll_rr {
+  int rr_id;
+  char rr_owner[MYSQL_STRLEN];
+  int rr_ttl;
+  char rr_type[MYSQL_STRLEN];
+  char rr_rdata[MYSQL_STRLEN];
+  struct ll_rr *next;
+} ll_rr_t;
+
+int dm_tofu_print_ll_rr(ll_rr_t *ll_rr);
+
+// create a linked list of rr under this zone with this rr_status
+// returns rc or -1 on failure
+int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **ll_rr_head);
+
 
 // returns an offered zone from the pre-created list in packet format
  ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) ; // parent_name is the owner. zone is the zone to be delegated
