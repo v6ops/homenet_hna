@@ -240,6 +240,7 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id);
 // delete db entry for rr with this rr_id
 int dm_tofu_delete_rr(MYSQL *db, int rr_id);
 
+
 // update db for the rr rr_id to new rr_status
 int dm_tofu_update_rr_status(MYSQL *db, int rr_id, char *rr_status, time_t slot_time);
 
@@ -355,6 +356,13 @@ int dm_tofu_print_ll_rr(ll_rr_t *ll_rr);
 // returns rc or -1 on failure
 int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **ll_rr_head);
 
+typedef struct ll_rr_update { // only used to track db changes
+  int rr_id;
+  char rr_status[MYSQL_STRLEN];
+  struct ll_rr_update *next;
+} ll_rr_update_t;
+// push an rr_id onto a list for db update
+void push_rr_update(ll_rr_update_t **ll_rr_update_head, ll_rr_update_t **ll_rr_update_current, int rr_id, char *rr_status);
 
 // returns an offered zone from the pre-created list in packet format
  ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) ; // parent_name is the owner. zone is the zone to be delegated

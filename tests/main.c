@@ -1,6 +1,6 @@
-/* dns_over_https_proxy
-
-* Copyright (c) 2019 Ray Hunter
+/* Basic testing
+*
+* Copyright (c) 2019-2025 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -28,6 +28,7 @@
 /* include test cases' include files here */
 //#include "find_next_test.h"
 #include "ldns_helpers_test.h"
+#include "do_EVP_HMACSHA256_test.h"
 
 static int init_suite1(void) { return 0; }
 
@@ -51,7 +52,8 @@ int main() {
   /* add the tests to the suite */
   if (
  //   !CU_add_test(pSuite, "find_next", test_find_next) ||
-    !CU_add_test(pSuite, "ldns_helpers", test_ldns_helpers) 
+    !CU_add_test(pSuite, "ldns_helpers", test_ldns_helpers) ||
+    !CU_add_test(pSuite, "do_EVP_HMACSHA256", do_EVP_HMACSHA256_test) 
   ) {
     CU_cleanup_registry();
     return (int)CU_get_error();

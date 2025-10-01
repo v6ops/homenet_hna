@@ -1,7 +1,6 @@
 
 # Copyright (c) 2019 Ray Hunter
-
-# dns_over_https_proxy
+#
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
 # "Software"), to deal in the Software without restriction, including
@@ -22,14 +21,16 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 #
+AUTOMAKE_OPTIONS = subdir-objects
 if HAVE_CUNIT
 
 check_PROGRAMS = main sample_test
 
+
 # complex test made up of several source files in one suite
 #OBJECTS = main.cpp ldns_helpers_test.cpp
-OBJECTS = main.c ldns_helpers_test.c
-HFILES = ldns_helpers_test.h
+OBJECTS = main.c ldns_helpers_test.c do_EVP_HMACSHA256_test.c ../src-dm/dm_tofu.c ../src-dm/db.c
+HFILES = ldns_helpers_test.hd do_EVP_HMACSHA256_test.h ../src-dm/db.h
 main_SOURCES = $(HFILES) $(OBJECTS)
 
 #if ENABLE_STATIC
@@ -41,8 +42,9 @@ main_LDADD = ${top_builddir}/lib/*.o
 #main_LDADD = ${top_builddir}/src/find_next.o
 #endif
 
-main_LDADD += @CUNIT_LIBS@
-main_LDFLAGS = -static
+main_LDADD += @CUNIT_LIBS@ -lssl -lcrypto -lmysqlclient -lldns -lhna 
+main_LDFLAGS = -static  -fsanitize=address
+main_CFLAGS= -DWITH_SSL -DWITH_TOFU$(AM_CFLAGS)
 
 # stand alone test
 #SAMPLE_OBJECTS = sample_test.cpp
