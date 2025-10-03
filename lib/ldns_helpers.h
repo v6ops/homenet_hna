@@ -92,6 +92,7 @@ ldns_rr_list * get_rrset(const ldns_zone *zone, const ldns_rdf *owner_name, cons
 
 void ldns_helpers_pkt_free(ldns_pkt *pkt);
 void ldns_helpers_pkt_set_times(ldns_pkt *pkt, struct timeval *rx, struct timeval *tx);
+void ldns_helpers_zone_deep_free(ldns_zone *z);
 void ldns_helpers_zone_free(ldns_zone *z);
 void ldns_helpers_rdf_free(ldns_rdf *rdf);
 void ldns_helpers_rr_list_free(ldns_rr_list *rr_list);

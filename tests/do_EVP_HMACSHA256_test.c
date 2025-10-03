@@ -4,19 +4,9 @@
  */
 
 #include <CUnit/CUnit.h>
-#include "../src-dm/db.h"
 #include "../src-dm/dm_tofu.h"
+#include "test_harness.h"
 
-int cmp_array(char *a, char *b, size_t len) {
-  int ret=0;
-  int i;
-  for (i=0;i<len;i++) {
-    if (a[i]!=b[i]) {
-     ret++;
-    }
-  }
-  return ret;
-}
 
 int do_EVP_HMACSHA256_test(void){
   CU_ASSERT(0 == 0);
@@ -93,6 +83,7 @@ CU_ASSERT(cmp_array(digest,expected_digest3,len)==0);
  */
 
   free(digest);
+  free(key3);
 
   db_close(db);
 

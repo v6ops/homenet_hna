@@ -106,6 +106,13 @@ ldns_pkt* ldns_helpers_pkt_error(ldns_pkt *query_pkt, ldns_pkt_rcode rcode)
   return error_pkt;
 }
 
+void ldns_helpers_zone_deep_free(ldns_zone *z)
+{
+  if (z!=NULL) {
+    ldns_zone_deep_free(z);
+    z=NULL;
+  }
+}
 
 void ldns_helpers_zone_free(ldns_zone *z)
 {
@@ -188,8 +195,10 @@ ldns_zone* ldns_helpers_zone_read(const char * zone_file)
 ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the template for a particular sub zone
   /* this is static hard coded for now, but obviously the RR's could be zone specific e.g. to allow load balancing */
   ldns_zone *z; 	
-  ldns_rr   *rr;
-  ldns_rdf *prev=NULL;
+  ldns_rr   *rr1=NULL;
+  ldns_rr   *rr2=NULL;
+  ldns_rdf  *prev1=NULL;
+  ldns_rdf  *prev2=NULL;
   ldns_buffer *tmp_buf;
   ldns_status status;
   char *ptr;
@@ -205,31 +214,39 @@ ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the templ
   tmp_buf=ldns_buffer_new(ldns_helpers_max_buffer_size);
   ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns1);
   ptr=ldns_buffer_export2str(tmp_buf);
-  status = ldns_rr_new_frm_str(&rr, ptr, 3600, NULL, &prev);
+  status = ldns_rr_new_frm_str(&rr1, ptr, 3600, NULL, &prev1);
   LDNS_FREE(ptr);
   ldns_buffer_free(tmp_buf);
+  if (prev1!=NULL) {
+    ldns_rdf_deep_free(prev1);
+    prev1=NULL;
+  }
   if(status != LDNS_STATUS_OK) {
     printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
   } else {
-    if (ldns_zone_push_rr(z,rr)==true) rr_c++;
+    if (ldns_zone_push_rr(z,rr1)==true) rr_c++;
   }
 
   tmp_buf=ldns_buffer_new(ldns_helpers_max_buffer_size);
   ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns2);
   ptr=ldns_buffer_export2str(tmp_buf);
-  status = ldns_rr_new_frm_str(&rr, ptr, 3600, NULL, &prev);
+  status = ldns_rr_new_frm_str(&rr2, ptr, 3600, NULL, &prev2);
   LDNS_FREE(ptr);
   ldns_buffer_free(tmp_buf);
+  if (prev2!=NULL) {
+    ldns_rdf_deep_free(prev2);
+    prev2=NULL;
+  }
   if(status != LDNS_STATUS_OK) {
     printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
   } else {
-    if (ldns_zone_push_rr(z,rr)==true) rr_c++;
+    if (ldns_zone_push_rr(z,rr2)==true) rr_c++;
   }
 
   if (rr_c>0) {
     return z;
   } else {
-    ldns_helpers_zone_free(z);
+    ldns_helpers_zone_deep_free(z);
     return NULL;
   }
 
@@ -349,8 +366,7 @@ int ldns_helpers_notify_host(const char *zone_name,char *hostname) {
   if(!ldns_zone_name) {
     printf("cannot parse zone name: %s\n",zone_name);
     return -1;
-  }
-
+  } 
   
   notify = ldns_pkt_new();
   question = ldns_rr_new();
@@ -376,6 +392,10 @@ int ldns_helpers_notify_host(const char *zone_name,char *hostname) {
     if(status != LDNS_STATUS_OK) {
       printf("Error adding SOA version: %s\n",
         ldns_get_errorstr_by_id(status));
+    }
+    if (prev!=NULL) {
+      ldns_rdf_deep_free(prev);
+      prev=NULL;
     }
     ldns_pkt_push_rr(notify, LDNS_SECTION_ANSWER, soa_rr);
   }
@@ -514,7 +534,7 @@ ldns_pkt * ldns_helpers_axfr_response_new(ldns_pkt *query_pkt) {
   ldns_pkt *axfr_response_pkt;
   ldns_status status;
   ldns_rr *question;
-  ldns_rdf *ldns_zone_name = NULL;
+  //ldns_rdf *ldns_zone_name = NULL;
 
   ldns_zone *z;
 
@@ -652,7 +672,7 @@ ldns_pkt * ldns_helpers_ns_query_new(const char *zone_name) {
 ldns_rr * ldns_helpers_soa_rr_new(const char *zone_name) {
   /* LDNS types */
   ldns_rdf *ldns_zone_name = NULL;
-  ldns_status status;
+  ldns_status status=0;
   uint32_t soa_version = (uint32_t)time(NULL); // use current local systime for the soa version, so will always be fresh
   uint32_t soa_refresh = 86400;    // default refresh time from RIPE
   uint32_t soa_retry   = 7200;     // default retry time from RIPE
@@ -665,6 +685,7 @@ ldns_rr * ldns_helpers_soa_rr_new(const char *zone_name) {
     printf("cannot parse zone name: %s\n",zone_name);
     return NULL;
   }
+  ldns_rdf_deep_free(ldns_zone_name);
 
   /* create the rr for inside the pkt */
   char buf[ldns_helpers_max_buffer_size];
@@ -677,6 +698,10 @@ ldns_rr * ldns_helpers_soa_rr_new(const char *zone_name) {
   if(status != LDNS_STATUS_OK) {
     printf("Error adding SOA version: %s\n",
       ldns_get_errorstr_by_id(status));
+  }
+  if (prev!=NULL) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
   }
   return soa_rr;
 }

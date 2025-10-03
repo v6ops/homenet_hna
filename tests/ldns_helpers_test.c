@@ -1,6 +1,6 @@
 /* Homenet HNA
 
-* Copyright (c) 2019 Ray Hunter
+* Copyright (c) 2019-2025 Ray Hunter
 
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the
@@ -39,23 +39,51 @@ char zone_name[50]="my_subzone.homenetdns.com";
 CU_ASSERT(0 == 0);
 
 const ldns_output_format *fmt = NULL;
-// fmt = ldns_output_format_bubblebabble;
+printf("There will be errors reported by these tests. That's part of the test\n");
 CU_ASSERT(ldns_helpers_load_template(filename_non_existant) == NULL);
 CU_ASSERT(ldns_helpers_load_template(filename_corrupted) == NULL);
-CU_ASSERT(ldns_helpers_load_template(filename) != NULL);
-
+// this one can load
 z=ldns_helpers_load_template(filename);
-ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
+CU_ASSERT(z != NULL);
+if (z!=NULL) {
+  ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
+  ldns_zone_deep_free(z);
+  z=NULL;
+}
 
 //ldns_helpers_fill_template(z,zone_name);
 //ldns_rr_print_fmt(stderr, fmt, ldns_zone_soa(z));
 //ldns_rr_list_print_fmt(stdout, fmt, ldns_zone_rrs(z));
 //
+//
 char valid_zone[10]="sub";
-CU_ASSERT((z=ldns_helpers_zone_template_new(valid_zone))!=NULL);
-if (z) ldns_zone_print(stdout,z);
 char invalid_zone[10]="s u b";
+
+ldns_rr *rr;
+rr=ldns_helpers_soa_rr_new(valid_zone);
+CU_ASSERT(rr!=NULL);
+if(rr!=NULL) {
+ ldns_rr_free(rr);
+ rr=NULL;
+}
+
+rr=ldns_helpers_soa_rr_new(invalid_zone);
+CU_ASSERT(rr!=NULL);
+if(rr!=NULL) {
+ ldns_rr_free(rr);
+ rr=NULL;
+}
+CU_ASSERT((z=ldns_helpers_zone_template_new(valid_zone))!=NULL);
+if (z!=NULL)  {
+  ldns_zone_print(stdout,z);
+  ldns_zone_deep_free(z);
+  z=NULL;
+}
 CU_ASSERT((z=ldns_helpers_zone_template_new(invalid_zone))==NULL);
-if (z) ldns_zone_print(stdout,z);
+if (z!=NULL)  {
+  ldns_zone_print(stdout,z);
+  ldns_zone_deep_free(z);
+  z=NULL;
+}
 
 }
