@@ -10,6 +10,11 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include <mysql/mysql.h>
 
@@ -18,46 +23,23 @@
 #define TESTDB_PASSWORD "Kn0ttestpassword!"
 #define TESTDB_DATABASE "test"
 
+#define MYSQL_BIN  "/usr/bin/mysql"
+//#define MYSQL_BIN  "/usr/bin/echo"
 
-void testdb_close(MYSQL *con) {
-  mysql_close(con);
-}
 
-void fatal_testdb_error(MYSQL *con)
-{
-  fprintf(stderr, "DM: Fatal DB error %s\n", mysql_error(con));
-  db_close(con);
-  exit(1);
-}
+int reset_testdb (char *filename);
 
-/* init database */
-MYSQL *testdb_init() {
-  MYSQL *con;
-  con = mysql_init(NULL);
-  if (con == NULL) {
-    fprintf(stderr, "%s\n", mysql_error(con));
-    exit(1);
-  }
-  return con;
-}
+void testdb_close(MYSQL *con) ;
+
+void fatal_testdb_error(MYSQL *con);
+
+MYSQL *testdb_init() ;
 
 /* Connect to the database */
-void testdb_connect(MYSQL *con, char *db_server, char *db_user, char *db_password, char *db_database) {
-  if (!mysql_real_connect(con, db_server, db_user, db_password, db_database, 0, NULL, 0))
-    fatal_testdb_error(con);
-}
+void testdb_connect(MYSQL *con, char *db_server, char *db_user, char *db_password, char *db_database) ;
 
 
 // compare 2 arrays. 0 = identical
-int cmp_array(char *a, char *b, size_t len) {
-  int ret=0;
-  int i;
-  for (i=0;i<len;i++) {
-    if (a[i]!=b[i]) {
-     ret++;
-    }
-  }
-  return ret;
-}
+int cmp_array(char *a, char *b, size_t len) ;
 
 #endif

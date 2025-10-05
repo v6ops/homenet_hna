@@ -27,6 +27,7 @@
 #include <CUnit/CUnit.h>
 
 #include "../lib/ldns_helpers.h"
+#include "./test_harness.h"
 
 void test_ldns_helpers(void) {
 
@@ -40,6 +41,11 @@ CU_ASSERT(0 == 0);
 
 const ldns_output_format *fmt = NULL;
 printf("There will be errors reported by these tests. That's part of the test\n");
+printf("start test_ldns_helpers\n");
+
+reset_testdb("./testdata/reset_testdb.sql");
+printf("continue test_ldns_helpers\n");
+
 CU_ASSERT(ldns_helpers_load_template(filename_non_existant) == NULL);
 CU_ASSERT(ldns_helpers_load_template(filename_corrupted) == NULL);
 // this one can load
@@ -68,7 +74,7 @@ if(rr!=NULL) {
 }
 
 rr=ldns_helpers_soa_rr_new(invalid_zone);
-CU_ASSERT(rr!=NULL);
+CU_ASSERT(rr==NULL);
 if(rr!=NULL) {
  ldns_rr_free(rr);
  rr=NULL;

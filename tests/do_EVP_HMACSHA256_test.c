@@ -5,8 +5,7 @@
 
 #include <CUnit/CUnit.h>
 #include "../src-dm/dm_tofu.h"
-#include "test_harness.h"
-
+#include "./test_harness.h"
 
 int do_EVP_HMACSHA256_test(void){
   CU_ASSERT(0 == 0);
