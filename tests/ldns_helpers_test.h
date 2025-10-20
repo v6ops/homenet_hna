@@ -25,6 +25,6 @@
 #ifndef LDNS_HELPERS_TEST_H
 #define LDNS_HELPERS_TEST_H
 
-void test_ldns_helpers(void);
+void ldns_helpers_test(void);
 
 #endif

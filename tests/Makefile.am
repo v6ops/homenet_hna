@@ -29,8 +29,8 @@ check_PROGRAMS = main sample_test
 
 # complex test made up of several source files in one suite
 #OBJECTS = main.cpp ldns_helpers_test.cpp
-OBJECTS = main.c ldns_helpers_test.c do_EVP_HMACSHA256_test.c test_harness.c ../src-dm/dm_tofu.c ../src-dm/db.c
-HFILES = ldns_helpers_test.h do_EVP_HMACSHA256_test.h test_harness.h ../src-dm/db.h
+OBJECTS = main.c ldns_helpers_test.c dm_tofu_test.c do_EVP_HMACSHA256_test.c test_harness.c ../src-dm/dm_tofu.c ../src-dm/db.c
+HFILES = ldns_helpers_test.h dm_tofu_test.h do_EVP_HMACSHA256_test.h test_harness.h ../src-dm/db.h
 main_SOURCES = $(HFILES) $(OBJECTS)
 
 #if ENABLE_STATIC

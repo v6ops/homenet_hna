@@ -29,7 +29,7 @@
 #include "../lib/ldns_helpers.h"
 #include "./test_harness.h"
 
-void test_ldns_helpers(void) {
+void ldns_helpers_test(void) {
 
 ldns_zone* z;
 char filename[50]="./dm/fwd.subzone.homenetdns.com.db";
@@ -42,9 +42,6 @@ CU_ASSERT(0 == 0);
 const ldns_output_format *fmt = NULL;
 printf("There will be errors reported by these tests. That's part of the test\n");
 printf("start test_ldns_helpers\n");
-
-reset_testdb("./testdata/reset_testdb.sql");
-printf("continue test_ldns_helpers\n");
 
 CU_ASSERT(ldns_helpers_load_template(filename_non_existant) == NULL);
 CU_ASSERT(ldns_helpers_load_template(filename_corrupted) == NULL);

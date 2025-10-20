@@ -7,8 +7,42 @@
 
 #include "test_harness.h"
 
+// take the sha256b hash of a file given the file name
+int f_sha256(unsigned char* dest, char* filename){
+  FILE* file;
+  int read;
+  int BUFFER_LENGTH = 1024;
+  char buffer[BUFFER_LENGTH];
+  EVP_MD_CTX *mdctx;
+  const EVP_MD *md;
+  unsigned int length;
+  file = fopen(filename, "r");
+  if(file <= 0){
+    printf("%s\n", filename);
+    perror("No file");
+    return -1;
+  }
+  mdctx = EVP_MD_CTX_create();
+  length = 0;
+  OpenSSL_add_all_digests();
+  md = EVP_get_digestbyname("sha256");
+  EVP_DigestInit_ex(mdctx, md, NULL);
+  while((read = fread((void*)buffer, 1, BUFFER_LENGTH, file)) != 0){
+    EVP_DigestUpdate(mdctx, buffer, read);
+    length += read;
+    if(read < BUFFER_LENGTH){
+      break;
+    }
+  }
+  EVP_DigestFinal_ex(mdctx, dest, &length);
+  EVP_MD_CTX_destroy(mdctx);
+  EVP_cleanup();
+  return 0;
+}
 
-int reset_testdb (char *filename) {
+
+// set db to known state
+int set_testdb (char *filename) {
 pid_t  pid;
    int status;
    int fd;
@@ -128,3 +162,21 @@ int cmp_array(char *a, char *b, size_t len) {
   return ret;
 }
 
+// compare 2 files via hashing. 0 = identical
+int cmp_file(char *fn_a, char *fn_b) {
+ unsigned char a[SHA256_LENGTH]={'\0'};
+ unsigned char b[SHA256_LENGTH]={'\0'};
+ int i;
+ f_sha256(a,fn_a);
+ printf("a: ");
+ for (i=0;i<SHA256_LENGTH;i++) {
+   printf("%02x ",(unsigned int)a[i]);
+ }
+ printf("\nb: ");
+ f_sha256(b,fn_b);
+ for (i=0;i<SHA256_LENGTH;i++) {
+   printf("%02x ",(unsigned int)b[i]);
+ }
+printf ("\n");
+ return cmp_array(a,b,SHA256_LENGTH);
+}
