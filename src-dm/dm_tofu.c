@@ -519,13 +519,13 @@ char *offer_zone(MYSQL *db, char *parent_name, char *ipv6, time_t slot_time){
   }
   mysql_stmt_close(stmt);
 
-  // reserve one row that has not been assigned
+  // reserve one row that has not been created
   // and is in the current time slot
   // and parent matches.
   // This will lock this row for other threads until the transaction commits. Skipped locked means another thread can continue and find the next row.
   printf("Reserve zone\n");
   stmt=mysql_stmt_init(db);
-  stmt_str="SELECT zone_id, zone_name FROM zone WHERE (zone_status='creating' AND parent_name =? AND zone_status_time >=? AND zone_status_time <? ) ORDER BY zone_id LIMIT 1 FOR UPDATE SKIP LOCKED";
+  stmt_str="SELECT zone_id, zone_name FROM zone WHERE (zone_status='created' AND parent_name =? AND zone_status_time >=? AND zone_status_time <? ) ORDER BY zone_id LIMIT 1 FOR UPDATE SKIP LOCKED";
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("Reserve zone: prepare failed. %s\n",mysql_stmt_error(stmt));
@@ -1430,6 +1430,9 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
 
 } 
 
+/*
+ * interface to knotc doesn't work this way.... you set one line per item
+ *
 // given a parent, return the notify list in knot format  of the secondary NS names. Remember to free the string.
 char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name) {
   // get the secondary NS for this parent
@@ -1467,6 +1470,8 @@ char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name) {
   //printf("notify list %s\n",notify_list);
   return notify_list;
 }
+*
+* */
 
 
 
@@ -1996,6 +2001,10 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   ll_rr_update_t *ll_rr_update_current=NULL;
   ll_rr_update_t *ll_rr_update_tmp=NULL;
 
+  ll_secondary_ns_t *ll_secondary_ns_head; // list of secondary NS (for notify)
+  ll_secondary_ns_t *ll_secondary_ns_tmp=NULL;
+  ll_secondary_ns_t *ll_secondary_ns_current=NULL;
+
   if ( (zone_status==NULL) || (dm_tofu_is_valid_zone_status(zone_status)) ) {
     printf("dm_tofu_ns_update: needs a valid zone status, Got %s\n",zone_status);
     return -1;
@@ -2022,7 +2031,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   FILE *fd_knotc_zone;
 
   char *ns_name;
-  char *notify_list;
+  // char *notify_list;
 
   time_t start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
   int status=0;
@@ -2046,7 +2055,10 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
 
   // get the primary NS for this parent
   ns_name=dm_tofu_get_ns(db,parent_name);
-  notify_list=dm_tofu_get_notify_list(db,parent_name);
+  //
+  // get the secondary NS for this parent
+  // notify_list=dm_tofu_get_notify_list(db,parent_name);
+  ll_secondary_ns_head=dm_tofu_get_secondary_ns(db, parent_name); 
 
   while (ll_zone_current!=NULL) {
     printf("dm_tofu_ns_update: processing zone %s\n",ll_zone_current->zone_name);
@@ -2085,7 +2097,13 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       // we only add the primary later once ACME completes
 
       // add notifies for secondaries
-      fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,notify_list);
+      //fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,notify_list);
+      ll_secondary_ns_current=ll_secondary_ns_head;
+      while (ll_secondary_ns_current!=NULL) {
+        fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
+        ll_secondary_ns_tmp=ll_secondary_ns_current->next;
+        ll_secondary_ns_current=ll_secondary_ns_tmp;
+      }
 
       // add the NS delegation to the parent
       fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
@@ -2199,11 +2217,11 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       // execute the commands via knotc. TODO improve status checking for failed command files.
       printf("dm_tofu_ns_update: executing zone %s\n",parent_name);
       status=0;
-      //status=knot_helpers_exec_file(fn_knotc_config);
+      status=knot_helpers_exec_file(fn_knotc_config);
       if (status!=0) {
         printf("dm_tofu_ns_update: warning. Error executing zone config %s\n",parent_name);
       }
-      //status=knot_helpers_exec_file(fn_knotc_zone);
+      status=knot_helpers_exec_file(fn_knotc_zone);
       if (status!=0) {
         printf("dm_tofu_ns_update: warning. Error executing zone content %s\n",parent_name);
       }
@@ -2220,6 +2238,15 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
     } // end if last time through
     ll_zone_current=ll_zone_tmp;
   } // end WHILE ll_zone_current
+  // all zones are done
+    
+  // this pass to free the secondary NS linked list.
+  ll_secondary_ns_current=ll_secondary_ns_head;
+  while (ll_secondary_ns_current!=NULL) {
+    ll_secondary_ns_tmp=ll_secondary_ns_current->next;
+    free(ll_secondary_ns_current);
+    ll_secondary_ns_current=ll_secondary_ns_tmp;
+  }
  
   // this pass to update the rr status in the db and free the linked list. This covers all zones under this parent in one go.
   ll_rr_update_current=ll_rr_update_head;
@@ -2254,9 +2281,9 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   if (ns_name != NULL) {
    free(ns_name);
   }
-  if (notify_list != NULL) {
-   free(notify_list);
-  }
+  //if (notify_list != NULL) {
+  // free(notify_list);
+  // }
    
   printf("dm_tofu_ns_update: ended.\n");
   return rc;
@@ -2516,8 +2543,6 @@ char *knot_helpers_create_file() {
    return filename;
 }
 
-// function called from server exec knot helper
-int knot_helpers_exec_file(char *filename);
 // function called from server delete file containing knotc commands
 int knot_helpers_delete_file(char *filename) {
   char filename_template[] = "/tmp/KnotcCommands"; // must match prefix in the template above

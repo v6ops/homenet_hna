@@ -25,13 +25,18 @@
 #define TESTDB_DATABASE "test"
 
 #define MYSQL_BIN  "/usr/bin/mysql"
+#define MYSQLDUMP_BIN  "/usr/bin/mysqldump"
 #define SHA256_LENGTH 32
 //#define MYSQL_BIN  "/usr/bin/echo"
 
 // take the sha256b hash of a file given the file name
 int f_sha256(unsigned char* dest, char* filename);
 
+// set the testdb to a known state
 int set_testdb (char *filename);
+
+// get the current state of the testdb to a file
+int get_testdb (char *filename);
 
 void testdb_close(MYSQL *con) ;
 
@@ -40,7 +45,7 @@ void fatal_testdb_error(MYSQL *con);
 MYSQL *testdb_init() ;
 
 /* Connect to the database */
-void testdb_connect(MYSQL *con, char *db_server, char *db_user, char *db_password, char *db_database) ;
+void testdb_connect(MYSQL *con) ;
 
 
 // compare 2 arrays. 0 = identical

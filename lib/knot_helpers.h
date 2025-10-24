@@ -58,6 +58,7 @@ int fork_make_knot_txt(char *zone,char *txt);
 // Unset (delete) TXT record for specified zone. Used after ACME challenge
 int fork_delete_knot_txt(char *zone,char *txt);
 
+// exec a file containing knot commands
 int knot_helpers_exec_file(char *filename);
 
 #endif

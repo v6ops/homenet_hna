@@ -119,6 +119,129 @@ pid_t  pid;
    }
 }
 
+// get test db to file
+int get_testdb (char *filename) {
+pid_t  pid;
+   int status;
+   int fd;
+   char fn[80];
+   memset(fn,'\0',80);
+
+   if ((filename !=NULL) && (strlen(filename)>0 && (strlen(filename)<80))) {
+     strcpy(fn,filename);
+   } else {
+     strcpy(fn,"./testdata/get_testdb.sql");
+   }
+
+   printf("getting testdb\n");
+
+   pid = fork();
+   if (pid == -1){
+      printf("can't fork, error occured\n");
+      exit(EXIT_FAILURE);
+   }
+   else if (pid == 0){
+
+      // mysqldump -u root -p --result-file=./testdata/get_testdb.sql --no-create-info --no-create-db --compact test infra zone rr parent
+      // compact sets the following
+      // --skip-add-drop-table
+      // --skip-add-locks
+      // --skip-comments
+      // --skip-disable-keys
+      // --skip-set-charset
+      
+      char passwd_opt[60];
+      memset(passwd_opt,'\0',60);
+      strcat(passwd_opt,"--password=");
+      strcat(passwd_opt,TESTDB_PASSWORD);
+
+      char user_opt[60];
+      memset(user_opt,'\0',60);
+      strcat(user_opt,"-u");
+      //strcat(user_opt,TESTDB_PASSWORD);
+      
+      char output_opt[100];
+      memset(output_opt,'\0',100);
+      strcat(output_opt,"--result-file="); // dump to file
+      strcat(output_opt,filename);
+
+      char nocreate1_opt[20];
+      memset(nocreate1_opt,'\0',20);
+      strcat(nocreate1_opt,"--no-create-info"); // skip the table creates
+
+      char nocreate2_opt[20];
+      memset(nocreate2_opt,'\0',20);
+      strcat(nocreate2_opt,"--no-create-db"); // skip the db create
+
+      char compact_opt[10];
+      memset(compact_opt,'\0',10);
+      strcat(compact_opt,"--compact"); // skip table locking, comments etc.
+
+      char db_opt[10];
+      memset(db_opt,'\0',10);
+      strcat(db_opt,"test"); // dump only the test db
+
+      char t1_opt[10];
+      memset(t1_opt,'\0',10);
+      strcat(t1_opt,"infra"); // dump the infra table
+
+      char t2_opt[10];
+      memset(t2_opt,'\0',10);
+      strcat(t2_opt,"zone"); // dump the zone table
+
+      char t3_opt[10];
+      memset(t3_opt,'\0',10);
+      strcat(t3_opt,"rr"); // dump the rr table
+
+      char t4_opt[10];
+      memset(t4_opt,'\0',10);
+      strcat(t4_opt,"parent"); // dump the parent table
+
+      char *argv_list[14] = {NULL};
+      argv_list[0] = MYSQLDUMP_BIN;
+      argv_list[1] = user_opt;
+      argv_list[2] = TESTDB_USER;
+      argv_list[3] = passwd_opt;
+      argv_list[4] = output_opt;
+      argv_list[5] = nocreate1_opt;
+      argv_list[6] = nocreate2_opt;
+      argv_list[7] = compact_opt;
+      argv_list[8] = db_opt;
+      argv_list[9] = t1_opt;
+      argv_list[10] = t2_opt;
+      argv_list[11] = t3_opt;
+      argv_list[12] = t4_opt;
+      argv_list[13] = NULL;
+
+      execv(MYSQLDUMP_BIN,argv_list);
+      exit(0);
+   }
+   else {
+        if (waitpid(pid, &status, 0) > 0) {
+            if (WIFEXITED(status) && !WEXITSTATUS(status)) {
+              // printf("program execution successful\n");
+	      return 0;
+	    } else if (WIFEXITED(status) && WEXITSTATUS(status)) {
+                if (WEXITSTATUS(status) == 127) {
+                    // execv failed
+                     printf("execv failed\n");
+                } else {
+                     printf("program terminated normally,"
+                       " but returned a non-zero status\n");
+		}
+            } else
+                printf("program didn't terminate normally\n");
+        }  else {
+           // waitpid() failed
+            printf("waitpid() failed\n");
+        }
+      printf("fork returned\n");
+      exit(0);
+   }
+}
+
+
+
 
 
 void testdb_close(MYSQL *con) {
@@ -144,8 +267,8 @@ MYSQL *testdb_init() {
 }
 
 /* Connect to the database */
-void testdb_connect(MYSQL *con, char *db_server, char *db_user, char *db_password, char *db_database) {
-  if (!mysql_real_connect(con, db_server, db_user, db_password, db_database, 0, NULL, 0))
+void testdb_connect(MYSQL *con) {
+  if (!mysql_real_connect(con,TESTDB_SERVER,TESTDB_USER,TESTDB_PASSWORD,TESTDB_DATABASE, 0, NULL, 0))
     fatal_testdb_error(con);
 }
 
@@ -168,15 +291,18 @@ int cmp_file(char *fn_a, char *fn_b) {
  unsigned char b[SHA256_LENGTH]={'\0'};
  int i;
  f_sha256(a,fn_a);
+ /*
  printf("a: ");
  for (i=0;i<SHA256_LENGTH;i++) {
    printf("%02x ",(unsigned int)a[i]);
  }
  printf("\nb: ");
+ */
  f_sha256(b,fn_b);
- for (i=0;i<SHA256_LENGTH;i++) {
+ /*for (i=0;i<SHA256_LENGTH;i++) {
    printf("%02x ",(unsigned int)b[i]);
  }
 printf ("\n");
+*/
  return cmp_array(a,b,SHA256_LENGTH);
 }
