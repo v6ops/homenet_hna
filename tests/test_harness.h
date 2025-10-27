@@ -26,6 +26,7 @@
 
 #define MYSQL_BIN  "/usr/bin/mysql"
 #define MYSQLDUMP_BIN  "/usr/bin/mysqldump"
+#define BASH_BIN  "/usr/bin/bash"
 #define SHA256_LENGTH 32
 //#define MYSQL_BIN  "/usr/bin/echo"
 
@@ -37,6 +38,9 @@ int set_testdb (char *filename);
 
 // get the current state of the testdb to a file
 int get_testdb (char *filename);
+
+//exec bash script
+int exec_bash (char *filename);
 
 void testdb_close(MYSQL *con) ;
 

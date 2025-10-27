@@ -68,10 +68,10 @@ GRANT LOCK TABLES, INSERT, SELECT, UPDATE, DELETE,DROP,CREATE ON `test`.* TO `kn
 GRANT PROCESS ON *.* TO `knottest`@`localhost`;
 
 -- our basic infra set at install time
-INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('ns1.example.com','dm1','85.215.139.146','2a01:239:24f:f800::1','ns','created');
-INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('ns2.example.com','dm2','212.132.88.195','2a01:239:3c7:c100::1','ns','created');
-INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('dm1.example.com','dm2','85.215.139.146','2a01:239:24f:f800::1','dm','created');
-INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('dm2.example.com','dm1','212.132.88.195','2a01:239:3c7:c100::1','dm','created');
+INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('ns1.homenetinfra.com','dm1','85.215.139.146','2a01:239:24f:f800::1','ns','created');
+INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('ns2.homenetinfra.com','dm2','212.132.88.195','2a01:239:3c7:c100::1','ns','created');
+INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('dm1.homenetinfra.com','dm2','85.215.139.146','2a01:239:24f:f800::1','dm','created');
+INSERT INTO infra (`name`,`hostname`,`ipv4`,`ipv6`,`node_type`,`infra_status`) VALUES ('dm2.homenetinfra.com','dm1','212.132.88.195','2a01:239:3c7:c100::1','dm','created');
 
 -- homenet dns is our only parent domain at this time
 INSERT INTO parent (`parent_name`,`dm1`,`dm2`,`ns1`,`ns2`,`ns3`) VALUES ('example.com',3,4,1,2,5);

@@ -241,6 +241,61 @@ pid_t  pid;
 }
 
 
+// exec a bash script
+int exec_bash (char *filename) {
+pid_t  pid;
+   int status;
+   int fd;
+   char fn[80];
+   memset(fn,'\0',80);
+
+   if ((filename !=NULL) && (strlen(filename)>0 && (strlen(filename)<80))) {
+     strcpy(fn,filename);
+   } else {
+     strcpy(fn,"./testdata/reset_knot.bash");
+   }
+
+   printf("Exec bash script %s\n",fn);
+
+   pid = fork();
+   if (pid == -1){
+      printf("can't fork, error occured\n");
+      exit(EXIT_FAILURE);
+   }
+   else if (pid == 0){
+
+      char *argv_list[3] = {NULL};
+      argv_list[0] = BASH_BIN;
+      argv_list[1] = fn;
+      argv_list[2] = NULL;
+
+      execv(BASH_BIN,argv_list);
+      exit(0);
+   }
+   else {
+        if (waitpid(pid, &status, 0) > 0) {
+            if (WIFEXITED(status) && !WEXITSTATUS(status)) {
+              // printf("program execution successful\n");
+	      return 0;
+	    } else if (WIFEXITED(status) && WEXITSTATUS(status)) {
+                if (WEXITSTATUS(status) == 127) {
+                    // execv failed
+                     printf("execv failed\n");
+                } else {
+                     printf("program terminated normally,"
+                       " but returned a non-zero status\n");
+		}
+            } else
+                printf("program didn't terminate normally\n");
+        }  else {
+           // waitpid() failed
+            printf("waitpid() failed\n");
+        }
+      printf("fork returned\n");
+      exit(0);
+   }
+}
+
 
 
 

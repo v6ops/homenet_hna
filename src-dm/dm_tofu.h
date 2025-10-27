@@ -94,6 +94,8 @@
 *                   |    |                                                     *
 *                    <---                                                      *
 *                                                                              *
+* TXT RR only makes sense in offered state because otherwise it is overwritten *
+* by the zone from the HNA. Future TXT challenges are placed in the primary.   *
 *                                                                              *
 *******************************************************************************/
 
@@ -249,6 +251,15 @@ int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status, time_t 
 
 // given a parent, return the name of the primary NS name. Remember to free
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
+
+// given a rr_name, return the longest match from the zone table
+// returns zone_name or NULL on failure or no match
+// remember to free
+char *dm_tofu_get_zone(MYSQL *db, char *rr_name);
+
+// select zone_id given a zone_name
+// return -1 for no match or errors
+int select_zone_id(MYSQL *db, char *zone_name);
 
 // given a zone_name, return the name of the parent. Remember to free
 char *dm_tofu_get_parent(MYSQL *db, char *zone_name);

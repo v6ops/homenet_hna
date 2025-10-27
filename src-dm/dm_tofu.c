@@ -283,6 +283,90 @@ time_t get_time_slot(time_t now){
   return slot;
 }
 
+
+// select zone_id given a zone_name
+// return -1 for no match or errors
+int select_zone_id(MYSQL *db, char *zone_name){
+  int zone_id=0;
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(MYSQL_BIND));
+  size_t len1;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+
+  int status;
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+  int rc=0;
+
+  printf("select_zone_id\n");
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT zone_id FROM zone WHERE (zone_name =?) ORDER BY zone_id LIMIT 1;";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("select_zone_id: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  // zone_name
+  memset(bind, 0, sizeof(bind));
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind)) {
+    printf("select_zone_id: bind failed %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt)) {
+    printf ("select_zone_id: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN zone_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&zone_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read. For this query there is only 0 or 1.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == 1 ) {
+      printf ("select_zone_id Error. Can't select zone_name %s\n",mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("select_zone_id: Info. Can't find a zone_name.\n");
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA) {
+      break; // last line. normal end of read
+    }
+    rc++;
+    printf("rc %i zone_name %.*s id %i\n",rc,(int)length[1],zone_name,zone_id);
+  }
+  mysql_stmt_close(stmt);
+  return zone_id;
+}
+
  
 // Create nzones zones under parent in the db.
 // There can be collisions with existing names because the hash is truncated.
@@ -1619,7 +1703,104 @@ int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *typ
 }
 
 
-// given a zone_name, return the longest matchcreate a linked list of parent under this hostname for DM
+// given a rr_name, return the longest match from the zone table
+// returns zone_name or NULL on failure or no match
+// remember to free
+char *dm_tofu_get_zone(MYSQL *db, char *rr_name) {
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  char zone_name[MYSQL_STRLEN];
+  memset(zone_name, '\0', MYSQL_STRLEN);
+
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (rr_name==NULL) || (strlen(rr_name)<2) ) {
+    printf("dm_tofu_get_zone: needs a rr name\n");
+    return NULL;
+  }
+
+  stmt=mysql_stmt_init(db);
+  // regexp (literal dot)<rr_name with dots escaped><anchored to end of string>
+  // results sorted by length, longest first, take only the first entry
+  // first \ escape is for C string, then a second for SQL string parsing
+  char *stmt_str="SELECT zone_name FROM zone AS A WHERE ? REGEXP concat('\\\\.',REPLACE(A.zone_name,'.','\\\\.'),'$') ORDER BY length(A.zone_name) DESC LIMIT 1;";
+  //printf ("stmt_str :%s:\n",stmt_str);
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_get_zone: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)rr_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(rr_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_get_zone: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_get_zone: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* STRING COLUMN zone_name */
+  bindout[0].buffer_type= MYSQL_TYPE_STRING;
+  bindout[0].buffer= (char *)&zone_name;
+  bindout[0].buffer_length= MYSQL_STRLEN;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read.
+  rc=0;  // row count. should always be 0 or 1
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      // printf ("dm_tofu_get_zone: No match\n");
+      mysql_stmt_close(stmt);
+      return NULL;
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      // printf ("dm_tofu_get_zone: normal end \n");
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_get_zone: Error. Can't check zone name for zone_name %s %s\n",rr_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } 
+    // We have data to return
+    // printf("rc %i rr_name %s zone_name %s\n",rc,rr_name,zone_name);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  // printf("returning %s\n",zone_name);
+  return dm_tofu_cp_name(zone_name);
+}
+
+
+// given a zone_name, return the longest match from the parent table
 // returns parent_name or NULL on failure or no match
 // remember to free
 char *dm_tofu_get_parent(MYSQL *db, char *zone_name) {

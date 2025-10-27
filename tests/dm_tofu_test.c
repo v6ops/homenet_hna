@@ -19,6 +19,10 @@ void dm_tofu_test(void) {
   testdb_connect(db);
   CU_ASSERT( db!=NULL );
 
+  printf("Reset knot: this may display errors if the zones don't exist from previous tests\n");
+  exec_bash("./testdata/reset_knot.bash");
+
+  printf("Reset test db\n");
   set_testdb("./testdata/reset_testdb.sql");
   printf("continue test_dm_tofu\n");
   // check the test harness is working OK
@@ -38,16 +42,25 @@ void dm_tofu_test(void) {
 #define NODE4 "2001:4::1"
   // move zones through the state machine, leaving zones in each possible state, some with an old timeout and some more recent
   //
-  // create 5 zones in creating state at TIME2
+  // DB Test 1. create 5 zones in creating state at TIME2
   create_zones(db, "example.com", 5 , TIME2);
   get_testdb("./testdata/got_dm_tofu01.sql");
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu01.sql","./testdata/got_dm_tofu01.sql"));
-  //exit(0);
-  // move all 5 of them to created state at TIME2+60
+
+  // try finding some ids of the created zones
+  CU_ASSERT(-1==select_zone_id(db, "nonsense.zone.name"));
+  CU_ASSERT(1==select_zone_id(db, "linear.realm.piece.floor.example.com"));
+  CU_ASSERT(2==select_zone_id(db, "basket.delay.need.sweet.example.com"));
+  CU_ASSERT(3==select_zone_id(db, "jaguar.oak.guess.lord.example.com"));
+  CU_ASSERT(4==select_zone_id(db, "device.vertex.deck.glad.example.com"));
+  CU_ASSERT(5==select_zone_id(db, "fabric.shine.flip.any.example.com"));
+  
+  // DBTest 2. move all 5 of them to created state at TIME2+60
   dm_tofu_creating_to_created(db, "example.com", TIME2+60);
   get_testdb("./testdata/got_dm_tofu02.sql");
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu02.sql","./testdata/got_dm_tofu02.sql"));
-  // more 4 zones from created into offered state TIME2+60
+  
+  // DB Test 3. Move 4 zones from created into offered state TIME2+60
   char *zone1=NULL;
   char *zone2=NULL;
   char *zone3=NULL;
@@ -57,7 +70,7 @@ void dm_tofu_test(void) {
   if (zone1!=NULL) {
 	  free(zone1);
   }
-  // check for duplicate entries. Shoudl return the same zone
+  // check for repeat requests on one IP. Should return the same zone
   zone1=offer_zone(db, PARENT_NAME, NODE1, TIME2+60);
   CU_ASSERT(0==cmp_array(zone1,"linear.realm.piece.floor.example.com",strlen(zone1)));
   zone2=offer_zone(db, PARENT_NAME, NODE2, TIME2+60);
@@ -80,6 +93,13 @@ void dm_tofu_test(void) {
   }
   get_testdb("./testdata/got_dm_tofu03.sql");
   //CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu03.sql","./testdata/got_dm_tofu03.sql"));
+
+
+  // DB Test 4. Move 3 zone into assigned state
+
+
+
+
   // create 5 zones in creating state at TIME1
   create_zones(db, "example.com", 5 , TIME1);
   get_testdb("./testdata/got_dm_tofu04.sql");
