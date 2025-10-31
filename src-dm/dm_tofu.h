@@ -58,44 +58,49 @@
 /*******************************************************************************
 *                                                                              *
 *  not exist ----> creating  zone names are in DB                              * 
-*    |                |                                                        *
-*    |             created   zones are created as primary asynch in a batch.   *
-*    |             /  |      NS and AAAA glue in parent. No DNSSEC on child.   *
-*    |            /   |                                                        *
-*    | batch   T1/    |      solicit PTR query received and PTR answer sent    *
-*    |          /     v                                                        *
-*  deleting <----- offered   one or more zones are sent to the HNA by DM(s)    *
-*    ^         T2     |                                                        *
-*    |                |      client requests cert from CA via ACME DNS         *
-*    |                |                                                        *
-*    |                |      client receives ACME DNS challenge from CA        *
-*    |                |                                                        *
-*    |                v      TXT update challenge received and answered        *
-*    |                |                                                        *
-*    |             assigning                                                   *
-*    |                |      potentially batch                                 *
-*    ^         T3     v                                                        *
-*    | <----<----- assigned  Glue TXT RR inserted in zone for ACME             *
-*    ^                |                                                        *
-*    |   any          |      client & CA complete cert asynch via ACME DNS     *
-*    |   NS RR        |                                                        *
-*    |   left?        |      DS or NS update add received using cert           *
-*    |  n    y        v                                                        *
-*    |<---------> delegating NS + Glue DS AAAA noted for add or delete         *
-*    ^    |           |                                                        *
-*    |    ^ NS or     |      batch to add DS to parent and resign or           *
-*    |    | DS Update |      zone changed to secondary and primary NS added    *
-*    |    |           v                                                        *
-*    L--<----<--- delegated  fully delegated zone with AXFR & glue in place    *
-*       T4                                                                     *
+*    |                 |                                                       *
+*    |              created  zones are created as primary asynch in a batch.   *
+*    |             /   |     NS and AAAA glue in parent. No DNSSEC on child.   *
+*    |            /    |                                                       *
+*    | batch   T1/     |     solicit PTR query received and PTR answer sent    *
+*    |          /      v                                                       *
+*  deleting <------ offered  one or more zones are sent to the HNA by DM(s)    *
+*    ^         T2      |                                                       *
+*    |                 |     client requests cert from CA via ACME DNS         *
+*    |                 |                                                       *
+*    |                 |     client receives ACME DNS challenge from CA        *
+*    |                 |                                                       *
+*    |                 v     TXT update challenge received and answered        *
+*    |         .-> assigning                                                   *
+*    |         ^       |                                                       *
+*    ^         |       |     potentially batch                                 *
+*    |        TXT      |                                                       *
+*    |    T3      \    v                                                       *
+*    | <----<----- assigned  Glue TXT RR inserted in child zone for ACME       *
+*    ^                 |                                                       *
+*    |                 |     client & CA complete cert asynch via ACME DNS     *
+*    |                 |                                                       *
+*    |      count      |     NS update add received using cert                 *
+*    |     NS RR>0?    |     NS + Glue DS AAAA noted for add or delete         *
+*    |      n   y      v     DM generated TXT RR deleted or overwritten        *
+*    |<-----< ? >--delegating                                                  *
+*    ^        ^        |                                                       *
+*    |        |        |                                                       *
+*    |       NS or     |     batch to add DS to parent and resign or           *
+*    |     DS Update   |     primary NS updated in delegated zone              *
+*    |           \     |                                                       *
+*    |            \    v                                                       *
+*    L------<----- delegated fully delegated zone with AXFR & glue in place    *
+*          T4                                                                  *
 *                                                                              *
 *                  any ->                                                      *
 *                   ^    |   AXFR received and reply sent                      *
 *                   |    |                                                     *
 *                    <---                                                      *
 *                                                                              *
-* TXT RR only makes sense in offered state because otherwise it is overwritten *
-* by the zone from the HNA. Future TXT challenges are placed in the primary.   *
+* TXT RR installed via the DM only makes sense before delegating.              *
+* Once delegated, any content would be over-written by AXFR from HNA primary.  *
+* Future TXT RR for ACME cert renewal go in HNA (and then published by AXFR)   *
 *                                                                              *
 *******************************************************************************/
 

@@ -8,15 +8,18 @@
 #
 
 knotc conf-begin
+knotc conf-set server.identity ns1.homenetinfra.com
 # set up some addresses for later use
 knotc conf-set remote.id ns1.homenetinfra.com
 knotc conf-set remote[ns1.homenetinfra.com].address 2a01:239:24f:f800::1
 knotc conf-set remote.id ns2.homenetinfra.com
-knotc conf-set remote[ns2.homenetinfra.com].address 2a02:247a:21e:4e00::1
+knotc conf-set remote[ns2.homenetinfra.com].address 2a01:239:3c7:c100::1
 
 # an ACL containing our servers
+# auto acl for zone transfer from known remotes
+knotc conf-set server.automatic-acl on
 knotc conf-set acl.id acl_homenetinfra.com
-knotc conf-set acl[acl_homenetinfra.com].address 2a01:239:24f:f800::1 85.215.139.146 2a02:247a:21e:4e00::1  212.132.88.195
+knotc conf-set acl[acl_homenetinfra.com].address 2a01:239:24f:f800::1 85.215.139.146 2a01:239:3c7:c100::1  212.132.88.195
 # allow all our own servers to notify and axfr
 knotc conf-set acl[acl_homenetinfra.com].action transfer notify
 
@@ -56,20 +59,19 @@ knotc conf-commit
 
 # set your own infra IPs here
 knotc zone-begin homenetinfra.com
+knotc zone-set homenetinfra.com homenetinfra.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2025102804 3600 1800 604800 600
 knotc zone-set homenetinfra.com homenetinfra.com. 600 NS ns1.homenetinfra.com.
 knotc zone-set homenetinfra.com homenetinfra.com. 600 NS ns2.homenetinfra.com.
-knotc zone-set homenetinfra.com homenetinfra.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2024060614 3600 1800 604800 600
 knotc zone-set homenetinfra.com homenetinfra.com. 600 CAA 128 issue "letsencrypt.org"
 knotc zone-set homenetinfra.com dm-synth.homenetinfra.com. 3600 NS dm1.homenetinfra.com.
 knotc zone-set homenetinfra.com dm1.homenetinfra.com. 600 A 85.215.139.146
 knotc zone-set homenetinfra.com dm1.homenetinfra.com. 600 AAAA 2a01:239:24f:f800::1
 knotc zone-set homenetinfra.com dm2.homenetinfra.com. 600 A 212.132.88.195
-knotc zone-set homenetinfra.com dm2.homenetinfra.com. 600 AAAA 2a02:247a:21e:4e00::1
+knotc zone-set homenetinfra.com dm2.homenetinfra.com. 600 AAAA 2a01:239:3c7:c100::1
 knotc zone-set homenetinfra.com ns1.homenetinfra.com. 600 A 85.215.139.146
 knotc zone-set homenetinfra.com ns1.homenetinfra.com. 600 AAAA 2a01:239:24f:f800::1
 knotc zone-set homenetinfra.com ns2.homenetinfra.com. 600 A 212.132.88.195
-knotc zone-set homenetinfra.com ns2.homenetinfra.com. 600 AAAA 2001:470:1f15:62e:ba27:ebff:fe6c:1b38
-knotc zone-set homenetinfra.com ns2.homenetinfra.com. 600 AAAA 2a02:247a:21e:4e00::1
+knotc zone-set homenetinfra.com ns2.homenetinfra.com. 600 AAAA 2a01:239:3c7:c100::1
 knotc zone-set homenetinfra.com www.homenetinfra.com. 600 A 85.215.139.146
 knotc zone-set homenetinfra.com www.homenetinfra.com. 600 AAAA 2a01:239:24f:f800::1
 knotc zone-set homenetinfra.com _443._tcp.www.homenetinfra.com. 600 TLSA 2 0 1 25847D668EB4F04FDD40B12B6B0740C567DA7D024308EB6C2C96FE41D9DE218D

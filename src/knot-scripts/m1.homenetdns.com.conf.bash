@@ -25,8 +25,8 @@ knotc conf-set zone[homenetdns.com].acl acl_homenetinfra.com
 knotc conf-commit
 
 knotc zone-begin homenetdns.com
+knotc zone-set homenetdns.com homenetdns.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2025102801 3600 1800 604800 604800
 knotc zone-set homenetdns.com homenetdns.com. 600 NS ns1.homenetinfra.com.
 knotc zone-set homenetdns.com homenetdns.com. 600 NS ns2.homenetinfra.com.
-knotc zone-set homenetdns.com homenetdns.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2019082278 3600 1800 604800 604800
 
 knotc zone-commit homenetdns.com
