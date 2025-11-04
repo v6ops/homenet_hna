@@ -48,12 +48,12 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu01.sql","./testdata/got_dm_tofu01.sql"));
 
   // try finding some ids of the created zones
-  CU_ASSERT(-1==select_zone_id(db, "nonsense.zone.name"));
-  CU_ASSERT(1==select_zone_id(db, "linear.realm.piece.floor.example.com"));
-  CU_ASSERT(2==select_zone_id(db, "basket.delay.need.sweet.example.com"));
-  CU_ASSERT(3==select_zone_id(db, "jaguar.oak.guess.lord.example.com"));
-  CU_ASSERT(4==select_zone_id(db, "device.vertex.deck.glad.example.com"));
-  CU_ASSERT(5==select_zone_id(db, "fabric.shine.flip.any.example.com"));
+  CU_ASSERT(-1==dm_tofu_select_zone_id(db, "nonsense.zone.name"));
+  CU_ASSERT(1==dm_tofu_select_zone_id(db, "linear.realm.piece.floor.example.com"));
+  CU_ASSERT(2==dm_tofu_select_zone_id(db, "basket.delay.need.sweet.example.com"));
+  CU_ASSERT(3==dm_tofu_select_zone_id(db, "jaguar.oak.guess.lord.example.com"));
+  CU_ASSERT(4==dm_tofu_select_zone_id(db, "device.vertex.deck.glad.example.com"));
+  CU_ASSERT(5==dm_tofu_select_zone_id(db, "fabric.shine.flip.any.example.com"));
   
   // DBTest 2. move all 5 of them to created state at TIME2+60
   dm_tofu_creating_to_created(db, "example.com", TIME2+60);

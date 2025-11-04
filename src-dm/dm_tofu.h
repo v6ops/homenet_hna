@@ -78,13 +78,13 @@
 *    |    T3      \    v                                                       *
 *    | <----<----- assigned  Glue TXT RR inserted in child zone for ACME       *
 *    ^                 |                                                       *
-*    |                 |     client & CA complete cert asynch via ACME DNS     *
-*    |                 |                                                       *
-*    |      count      |     NS update add received using cert                 *
-*    |     NS RR>0?    |     NS + Glue DS AAAA noted for add or delete         *
-*    |      n   y      v     DM generated TXT RR deleted or overwritten        *
-*    |<-----< ? >--delegating                                                  *
-*    ^        ^        |                                                       *
+*    |    RFC2136      |     client & CA complete cert asynch via ACME DNS     *
+*    |    2.5.2        |                                                       *
+*    |    delete NS    |     DS add received using cert as per RFC2136 2.5.1   *
+*    |    RR Set ?     |     DM generated TXT RR deleted or overwritten        *
+*    |      y   n      v                                                       *
+*    |<-----< ? >-delegating DS or NS + Glue AAAA RR noted for add or delete   *
+*    ^        ^        |     as per RFC 2136 2.5.1 or 2.5.4                    *
 *    |        |        |                                                       *
 *    |       NS or     |     batch to add DS to parent and resign or           *
 *    |     DS Update   |     primary NS updated in delegated zone              *
@@ -130,6 +130,107 @@
 * So there's a period of ±2 timeslots where a zone exists in a state           *
 * that cannot change as it waits to be deleted.                                *
 *******************************************************************************/
+
+/*******************************************************************************
+*                                                                              *
+* RFC9526 DS Add and Delete                                                    *
+*  6.5.2.  Providing Information for the DNSSEC Chain of Trust                 *
+*                                                                              *
+*  To provide the DS RRset to initialize the DNSSEC chain of trust, the        *
+*  HNA MAY send a DNS update [RFC3007] message.                                *
+*                                                                              *
+*  The DNS update message is composed of a Header section, a Zone              *
+*  section, a Prerequisite section, an Update section, and an additional       *
+*  section.  The Zone section MUST set the ZNAME to the parent zone of         *
+*  the Registered Homenet Domain, which is where the DS records should         *
+*  be inserted.  As described in [RFC2136], ZTYPE is set to SOA and            *
+*  ZCLASS is set to the zone's class.  The Prerequisite section MUST be        *
+*  empty.  The Update section is a DS RRset with its NAME set to the           *
+*  Registered Homenet Domain, and the associated RDATA corresponds to          *
+*  the value of the DS.  The Additional Data section MUST be empty.            *
+*                                                                              *
+*  Though the Prerequisite section MAY be ignored by the DM, this value        *
+*  is fixed to remain coherent with a standard DNS update.                     *
+*                                                                              *
+*  Upon receiving the DNS update request, the DM reads the DS RRset in         *
+*  the Update section.  The DM checks that ZNAME corresponds to the            *
+*  parent zone.  The DM MUST ignore the Prerequisite and Additional Data       *
+*  sections, if present.  The DM MAY update the TTL value before               *
+*  updating the DS RRset in the parent zone.  Upon a successful update,        *
+*  the DM should return a NOERROR response as a commitment to update the       *
+*  parent zone with the provided DS.  An error indicates that the DM           *
+*  does not update the DS, and the HNA needs to act accordingly;               *
+*  otherwise, another method should be used by the HNA.                        *
+*                                                                              *
+*  The regular DNS error message MUST be returned to the HNA when an           *
+*  error occurs.  In particular, a FORMERR is returned when a format           *
+*  error is found, including when unexpected RRsets are added or when          *
+*  RRsets are missing.  A SERVFAIL error is returned when an internal          *
+*  error is encountered.  A NOTZONE error is returned when the Update          *
+*  and Zone sections are not coherent, and a NOTAUTH error is returned         *
+*  when the DM is not authoritative for the Zone section.  A REFUSED           *
+*  error is returned when the DM refuses the configuration or performing       *
+*  the requested action.                                                       *
+*                                                                              *
+*                                                                              *
+*******************************************************************************/
+
+/*******************************************************************************
+*                                                                              *
+* RFC9526 NS Add and Delete                                                    *
+* 6.5.3.  Providing Information for the Synchronization Channel                *
+*                                                                              *
+*  The default IP address used by the HNA for the Synchronization              *
+*  Channel is the IP address of the Control Channel.  To provide a             *
+*  different IP address, the HNA MAY send a DNS UPDATE message.                *
+*                                                                              *
+*  Similar to what is described in Section 6.5.2, the HNA MAY specify          *
+*  the IP address using a DNS update message.  The Zone section sets its       *
+*  ZNAME to the parent zone of the Registered Homenet Domain, ZTYPE to         *
+*  SOA, and ZCLASS to the zone's type.  Prerequisite is empty.  The            *
+*  Update section is an RRset of type NS.  The Additional Data section         *
+*  contains the RRsets of type A or AAAA that designate the IP addresses       *
+*  associated with the primary (or the HNA).                                   *
+*                                                                              *
+*  The reason to provide these IP addresses is to keep them unpublished        *
+*  and prevent them from being resolved.  It is RECOMMENDED that the IP        *
+*  address of the HNA be randomly chosen to prevent it from being easily       *
+*  discovered as well.                                                         *
+*                                                                              *
+*  Upon receiving the DNS update request, the DM reads the IP addresses        *
+*  and checks that the ZNAME corresponds to the parent zone.  The DM           *
+*  MUST ignore a non-empty Prerequisite section.  The DM configures the        *
+*  secondary with the IP addresses and returns a NOERROR response to           *
+*  indicate it is committed to serve as a secondary.                           *
+*                                                                              *
+*  Similar to what is described in Section 6.5.2, DNS errors are used,         *
+*  and an error indicates the DM is not configured as a secondary.             *
+*                                                                              *
+*******************************************************************************/
+
+/*******************************************************************************
+*                                                                              *
+* RFC9526 NS RR Set Delete                                                     *
+* 6.5.4.  Initiating Deletion of the Delegation                                *
+*                                                                              *
+*  To initiate the deletion of the delegation, the HNA sends a DNS             *
+*  UPDATE Delete message.                                                      *
+*                                                                              *
+*  The Zone section sets its ZNAME to the Registered Homenet Domain, the       *
+*  ZTYPE to SOA, and the ZCLASS to the zone's type.  The Prerequisite          *
+*  section is empty.  The Update section is an RRset of type NS with the       *
+*  NAME set to the Registered Domain Name.  As indicated by [RFC2136],         *
+*  Section 2.5.2, the delete instruction is initiated by setting TTL to        *
+*  0, CLASS to ANY, and RDLENGTH to 0, and RDATA MUST be empty.  The           *
+*  Additional Data section is empty.                                           *
+*                                                                              *
+*  Upon receiving the DNS update request, the DM checks the request and        *
+*  removes the delegation.  The DM returns a NOERROR response to               *
+*  indicate the delegation has been deleted.  Similar to what is               *
+*  described in Section 6.5.2, DNS errors are used, and an error               *
+*  indicates that the delegation has not been deleted.                         *
+*******************************************************************************/
+   
 
 // dictionary of words to use as tokens. Feel free to alter these words e.g. to your own language. more words = more bits per word. 1024=10 bits
 #include "dict.h"
@@ -241,6 +342,16 @@ int dm_tofu_is_valid_zone_status (char *zone_status);
 // 0 = valid. -1 = not valid
 int dm_tofu_is_valid_rr_status (char *rr_status) ;
 
+// check for a valid rr_type as this is an ENUM type in SQL.
+// (ns,ds,txt)
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_rr_type (char *rr_type);
+
+// check for a valid l_rr_type (LDNS packet encoding)
+// (ns,ds,txt)
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_l_rr_type (ldns_rr_type rr_type);
+
 // delete db entry for zone with this zone_id
 int dm_tofu_delete_zone(MYSQL *db, int zone_id);
 
@@ -257,14 +368,14 @@ int dm_tofu_update_zone_status(MYSQL *db,int zone_id, char *zone_status, time_t 
 // given a parent, return the name of the primary NS name. Remember to free
 char *dm_tofu_get_ns(MYSQL *db,char *parent_name) ;
 
-// given a rr_name, return the longest match from the zone table
+// given a zone_name, return the zone_id
+int dm_tofu_select_zone_id(MYSQL *db,char *zone_name);
+
+// given a rr_owner, return the longest match from the zone table
 // returns zone_name or NULL on failure or no match
 // remember to free
-char *dm_tofu_get_zone(MYSQL *db, char *rr_name);
+char *dm_tofu_get_zone(MYSQL *db, char *rr_owner);
 
-// select zone_id given a zone_name
-// return -1 for no match or errors
-int select_zone_id(MYSQL *db, char *zone_name);
 
 // given a zone_name, return the name of the parent. Remember to free
 char *dm_tofu_get_parent(MYSQL *db, char *zone_name);

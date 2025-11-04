@@ -32,9 +32,9 @@
 void ldns_helpers_test(void) {
 
 ldns_zone* z;
-char filename[50]="./dm/fwd.subzone.homenetdns.com.db";
-char filename_non_existant[50]="./dm/fwd.subzone.homenetdns.com.db.missing";
-char filename_corrupted[50]="./dm/fwd.subzone.homenetdns.com.db.corrupted";
+char filename[50]="./testdata/fwd.homenetdns.com.db";
+char filename_non_existant[50]="./testdata/fwd.subzone.homenetdns.com.db.missing";
+char filename_corrupted[50]="./testdata/fwd.homenetdns.com.db.corrupted";
 char zone_name[50]="my_subzone.homenetdns.com";
 
 CU_ASSERT(0 == 0);

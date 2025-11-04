@@ -13,7 +13,7 @@ echo $1
 if [[ $1 =~  ^[a-zA-Z0-9\.\/]+$ ]]
 then
     echo "file name is OK"
-    knotc -C /var/lib/knot/confdb < $1
+    knotc -C /var/lib/knot/confdb -t 30 -b < $1
     exit 0
 else
     echo "file name is too complex"

@@ -327,6 +327,9 @@ int knot_helpers_exec_file(char *filename) {
       //char *argv_list[] = {KNOTC_EXEC_FILE,filename,NULL}; 
       char *argv_list[3] = {NULL}; 
       argv_list[0] = KNOTC_EXEC_FILE; 
+      // argv_list[1] = "-t";  // set timeout
+      // argv_list[2] = "30";  // wait 30 seconds
+      // argv_list[3] = "-b";  // set blocking mode for trigger actions like zone-reload
       argv_list[1] = filename; 
       argv_list[2] = NULL; 
   

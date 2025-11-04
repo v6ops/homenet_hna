@@ -286,7 +286,7 @@ time_t get_time_slot(time_t now){
 
 // select zone_id given a zone_name
 // return -1 for no match or errors
-int select_zone_id(MYSQL *db, char *zone_name){
+int dm_tofu_select_zone_id(MYSQL *db, char *zone_name){
   int zone_id=0;
   MYSQL_STMT *stmt;
   MYSQL_BIND bind[1];
@@ -1014,7 +1014,7 @@ int dm_tofu_is_valid_zone_status (char *zone_status) {
   return -1;
 }
 
-// check for a valid 4xirrzone_status as this is an ENUM type in SQL.
+// check for a valid zone_status as this is an ENUM type in SQL.
 // ('creating','created','deleting')
 // 0 = valid. -1 = not valid
 int dm_tofu_is_valid_rr_status (char *rr_status) {
@@ -1027,6 +1027,198 @@ int dm_tofu_is_valid_rr_status (char *rr_status) {
     return 0;
   }
   return -1;
+}
+
+// check for a valid rr_type as this is an ENUM type in SQL.
+// (aaaa,ns,ds,txt)
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_rr_type (char *rr_type) {
+
+  if ( (strcmp(rr_type,"AAAA")==0) || (strcmp(rr_type,"NS")==0) || (strcmp(rr_type,"DS")==0) || (strcmp(rr_type,"TXT")==0) ) {
+    return 0;
+  }
+  return -1;
+}
+// check for a valid l_rr_type (LDNS int coding for rr_type)
+// 0 = valid. -1 = not valid
+int dm_tofu_is_valid_l_rr_type (ldns_rr_type l_rr_type) {
+
+  if ( (l_rr_type==LDNS_RR_TYPE_AAAA ) || (l_rr_type==LDNS_RR_TYPE_TXT ) || (l_rr_type==LDNS_RR_TYPE_NS ) || (l_rr_type==LDNS_RR_TYPE_DS ) ) {
+    return 0;
+  }
+  return -1;
+}
+
+
+
+
+// insert db entry into zone for the ldns_rr
+// ldns_rr typically comes from the Update/Authority field of a DNS packet
+// zone comes from the Zone section/Question field
+// all validity checks should have already been done before calling.
+// This is for "standard" add and delete of a single RR
+// as per RFC2136 2.5.1 - Add To An RRset and 2.5.4 - Delete An RR From An RRset
+// returns are DNS error codes
+int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
+// TODO
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[7];
+  memset(bind, 0, sizeof(bind));
+  int rc=0;  // row count
+  int zone_id;
+  size_t len1,len2,len3,len4;
+  char rr_status[MYSQL_STRLEN];
+  memset(rr_status,'\0',MYSQL_STRLEN);
+  char rr_owner[LDNS_MAX_DOMAINLEN];
+  memset(rr_owner,'\0',LDNS_MAX_DOMAINLEN);
+  char rr_rdata[LDNS_MAX_DOMAINLEN];
+  memset(rr_rdata,'\0',LDNS_MAX_DOMAINLEN);
+  int rr_ttl=0;
+  ldns_rr_type l_rr_type;
+  ldns_rr_class rr_class;
+  ldns_status l_status;
+  ldns_buffer *buf=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+
+  char *TXT="TXT";
+  char *NS="NS";
+  char *AAAA="AAAA";
+  char *DS="DS";
+  char *rr_type;
+
+  if ( (zone==NULL) || (strlen(zone)<2)  ) {
+    printf("dm_tofu_insert_rr: needs a valid zone\n");
+    return -1;
+  }
+
+  time_t rr_status_time=(slot_time>0) ? slot_time : get_time_slot(0);
+
+  // check if this is an add or delete
+  rr_class=ldns_rr_get_class(rr);
+  if (rr_class==LDNS_RR_CLASS_NONE) {
+    strcpy(rr_status,"deleting");
+    // ignore TTL from the rr
+    rr_ttl=0;
+  } else if (rr_class!=LDNS_RR_CLASS_IN) { // only works for IN (Internet) Class
+    return LDNS_RCODE_FORMERR;
+  } else {
+    strcpy(rr_status,"adding");
+    rr_ttl=ldns_rr_ttl(rr);
+  }
+
+  // ignore short TTL
+  if (rr_ttl<600) {
+    rr_ttl=600;
+  }
+
+  l_rr_type=ldns_rr_get_type(rr);
+  if (dm_tofu_is_valid_l_rr_type(l_rr_type)<0) {
+    return LDNS_RCODE_REFUSED ; // we don't handle this type of RR
+  }
+
+  switch (l_rr_type) { // translate LDNS RR type to a text string for entry in the db
+    case LDNS_RR_TYPE_TXT:
+      rr_type=TXT;
+      break;
+    case LDNS_RR_TYPE_AAAA:
+      rr_type=AAAA;
+      break;
+    case LDNS_RR_TYPE_DS:
+      rr_type=DS;
+      break;
+    case LDNS_RR_TYPE_NS:
+      rr_type=NS;
+      break;
+    default:
+      return LDNS_RCODE_REFUSED; // should never be reached
+   }  
+
+  if (!ldns_rr_owner(rr)) {
+    return LDNS_RCODE_FORMERR;;
+  }
+  l_status = ldns_rdf2buffer_str_dname(buf, ldns_rr_owner(rr));
+  strcpy(rr_owner,(char *)ldns_buffer_export(buf));
+  ldns_buffer_free(buf);
+
+  if ( (l_status != LDNS_STATUS_OK) || (strlen (rr_owner)>MYSQL_STRLEN) ) { //  name too long for db or munged name
+    return LDNS_RCODE_FORMERR;
+  }
+  strcpy(rr_owner,(char *)ldns_buffer_export(buf));
+
+  // insert the rr
+  stmt=mysql_stmt_init(db);
+  // zone_id INT DEFAULT 0,    /* link to zone */
+  //   rr_owner VARCHAR(80),     /* the owner of this RR i.e. what is queried */
+  //     rr_ttl INT DEFAULT 3600,  /* TTL for this RR */
+  //     rr_type ENUM ('NS','DS','TXT'),
+  //     rr_rdata VARCHAR(80),        /* the content associated with this owner */
+  //     rr_status ENUM ('creating','created','deleting'), /* current status for state machine */
+  //     rr_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
+  char *stmt_str="INSERT INTO rr (`zone_id`,`rr_owner`,`rr_ttl`,`rr_type`,`rr_rdata`,`rr_status`,`rr_status_time``) VALUES (?,?,?,?,?,?,?);";
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("Insert rr: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return LDNS_RCODE_SERVFAIL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_LONG;
+  bind[0].buffer= (char *)&zone_id;
+  bind[0].is_null= 0;
+  bind[0].length= 0;
+
+  bind[1].buffer_type= MYSQL_TYPE_STRING;
+  bind[1].buffer= (char *)rr_owner;
+  bind[1].buffer_length= MYSQL_STRLEN;
+  bind[1].is_null= 0;
+  len1=strlen(rr_owner);
+  bind[1].length= &len1;
+
+  bind[2].buffer_type= MYSQL_TYPE_LONG;
+  bind[2].buffer= (char *)&rr_ttl;
+  bind[2].is_null= 0;
+  bind[2].length= 0;
+
+  bind[3].buffer_type= MYSQL_TYPE_STRING;
+  bind[3].buffer= (char *)rr_type;
+  bind[3].buffer_length= MYSQL_STRLEN;
+  bind[3].is_null= 0;
+  len2=strlen(rr_type);
+  bind[3].length= &len2;
+
+  bind[4].buffer_type= MYSQL_TYPE_STRING;
+  bind[4].buffer= (char *)rr_rdata;
+  bind[4].buffer_length= MYSQL_STRLEN;
+  bind[4].is_null= 0;
+  len3=strlen(rr_rdata);
+  bind[4].length= &len3;
+
+  bind[5].buffer_type= MYSQL_TYPE_STRING;
+  bind[5].buffer= (char *)rr_status;
+  bind[5].buffer_length= MYSQL_STRLEN;
+  bind[5].is_null= 0;
+  len4=strlen(rr_status);
+  bind[5].length= &len4;
+
+  bind[6].buffer_type= MYSQL_TYPE_LONGLONG;
+  bind[6].buffer= (char *)&rr_status_time;
+  bind[6].is_null= 0;
+  bind[6].length= 0;
+
+  if (mysql_stmt_bind_param(stmt, bind)) {
+    printf("dm_tofu_insert_rr: bind failed %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return LDNS_RCODE_SERVFAIL;
+  }
+  if (mysql_stmt_execute(stmt)) {
+    printf ("dm_tofu_insert_rr: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return LDNS_RCODE_SERVFAIL;
+  }
+
+  rc=mysql_affected_rows(db);
+  mysql_stmt_close(stmt);
+
+  return rc;
+
 }
 
 // delete db entry for the rr rr_id
@@ -1568,7 +1760,7 @@ int dm_tofu_select_parent_ns(MYSQL *db, ll_parent_t **ll_parent_head) {
   return dm_tofu_select_parent_func(db, ll_parent_head,"ns");
 }
 
-// create a linked list of parent where this hostname acts as primary NS
+// create a linked list of parent where this hostname acts as primary dm
 // returns rc or -1 on failure
 int dm_tofu_select_parent_dm(MYSQL *db, ll_parent_t **ll_parent_head) {
   return dm_tofu_select_parent_func(db, ll_parent_head,"dm");
@@ -1706,10 +1898,10 @@ int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *typ
 }
 
 
-// given a rr_name, return the longest match from the zone table
+// given a rr_owner, return the longest match from the zone table
 // returns zone_name or NULL on failure or no match
 // remember to free
-char *dm_tofu_get_zone(MYSQL *db, char *rr_name) {
+char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
   MYSQL_STMT *stmt;
   MYSQL_BIND bind[1];
   memset(bind, 0, sizeof(bind));
@@ -1725,13 +1917,13 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_name) {
   bool is_null[1];
   bool error[1];
 
-  if ( (rr_name==NULL) || (strlen(rr_name)<2) ) {
+  if ( (rr_owner==NULL) || (strlen(rr_owner)<2) ) {
     printf("dm_tofu_get_zone: needs a rr name\n");
     return NULL;
   }
 
   stmt=mysql_stmt_init(db);
-  // regexp (literal dot)<rr_name with dots escaped><anchored to end of string>
+  // regexp (literal dot)<rr_owner with dots escaped><anchored to end of string>
   // results sorted by length, longest first, take only the first entry
   // first \ escape is for C string, then a second for SQL string parsing
   char *stmt_str="SELECT zone_name FROM zone AS A WHERE ? REGEXP concat('\\\\.',REPLACE(A.zone_name,'.','\\\\.'),'$') ORDER BY length(A.zone_name) DESC LIMIT 1;";
@@ -1744,10 +1936,10 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_name) {
   }
 
   bind[0].buffer_type= MYSQL_TYPE_STRING;
-  bind[0].buffer= (char *)rr_name;
+  bind[0].buffer= (char *)rr_owner;
   bind[0].buffer_length= MYSQL_STRLEN;
   bind[0].is_null= 0;
-  len1=strlen(rr_name);
+  len1=strlen(rr_owner);
   bind[0].length= &len1;
 
   if (mysql_stmt_bind_param(stmt, bind) ) {
@@ -1788,7 +1980,7 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_name) {
       // printf ("dm_tofu_get_zone: normal end \n");
       break; // Last line. Normal end of read after match.
     } else if (status == 1 ) {
-      printf ("dm_tofu_get_zone: Error. Can't check zone name for zone_name %s %s\n",rr_name,mysql_error(db));
+      printf ("dm_tofu_get_zone: Error. Can't check zone name for zone_name %s %s\n",rr_owner,mysql_error(db));
       mysql_stmt_close(stmt);
       return NULL;
     } 
