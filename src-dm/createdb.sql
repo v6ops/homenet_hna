@@ -49,7 +49,7 @@ CREATE TABLE rr (rr_id INT AUTO_INCREMENT,
        zone_id INT DEFAULT 0,    /* link to zone */
        rr_owner VARCHAR(80),     /* the owner of this RR i.e. what is queried */
        rr_ttl INT DEFAULT 3600,  /* TTL for this RR */
-       rr_type ENUM ('NS','DS','TXT'),  
+       rr_type ENUM ('NS','DS','TXT','AAAA'),  
 
                                  /* NS rr are used to add primary to DNS delegation. They are added to the delegated zone config.
                                  /* TXT rr are added to delegated zone RRs for ACME challenge, but only until the delegation completes */

@@ -98,11 +98,179 @@ void dm_tofu_test(void) {
   // DB Test 4. Move 3 zone into assigned state
 
 
+  // DB Test 10. check RR Insertion
+  // create an A RR
+  ldns_rr *rr=NULL;
+  ldns_rdf *prev=NULL;
+  ldns_status l_status;
+  int ret;
+  ldns_rdf *origin = NULL;
+  const char *rr_string = "www.example.com.	3600	IN	A	192.168.1.1";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  char *str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	3600	IN	A	192.168.1.1\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB will fail with LDNS_RCODE_REFUSED
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,0);
+  CU_ASSERT(LDNS_RCODE_REFUSED==ret); // we don't do A RR
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+
+  // create an AAAA RR
+  char *rr_string2 = "www.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string2,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	600	IN	AAAA	2001:470:1f15:62e:21c:c4ff:fec9:de16\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu10.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu10.sql","./testdata/got_dm_tofu10.sql"));
+
+  // delete an AAAA RR ttl 0 class none
+  char *rr_string3 = "www.example.com.	0	NONE	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string3,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	0	NONE	AAAA	2001:470:1f15:62e:21c:c4ff:fec9:de16\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // delte to the DB with success
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328460);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record updated
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu11.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu11.sql","./testdata/got_dm_tofu11.sql"));
+
+
+  // create an NS RR
+  char *rr_string4 = "www.example.com.	600	IN	NS ns1.zone1.homenetinfra.com.";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string4,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	600	IN	NS	ns1.zone1.homenetinfra.com.\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu12.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu12.sql","./testdata/got_dm_tofu12.sql"));
+
+
+  // create an TXT RR
+  char *rr_string5 = "www.example.com.	600	IN	TXT	\"Welcome to the example domain!\"";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string5,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	600	IN	TXT	\"Welcome to the example domain!\"\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu13.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu13.sql","./testdata/got_dm_tofu13.sql"));
+
+
+  // create an DS RR
+  char *rr_string6 = "www.example.com.	600	IN	DS      26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string6,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	600	IN	DS	26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu14.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu14.sql","./testdata/got_dm_tofu14.sql"));
+
 
 
   // create 5 zones in creating state at TIME1
-  create_zones(db, "example.com", 5 , TIME1);
-  get_testdb("./testdata/got_dm_tofu04.sql");
+  //create_zones(db, "example.com", 5 , TIME1);
+  //get_testdb("./testdata/got_dm_tofu04.sql");
   //CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu04.sql","./testdata/got_dm_tofu04.sql"));
   // move 7 of them to created state at TIME2+1
   // move 6 of them to offered state at TIME1+2

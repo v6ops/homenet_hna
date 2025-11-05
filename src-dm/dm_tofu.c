@@ -1056,16 +1056,19 @@ int dm_tofu_is_valid_l_rr_type (ldns_rr_type l_rr_type) {
 // ldns_rr typically comes from the Update/Authority field of a DNS packet
 // zone comes from the Zone section/Question field
 // all validity checks should have already been done before calling.
-// This is for "standard" add and delete of a single RR
-// as per RFC2136 2.5.1 - Add To An RRset and 2.5.4 - Delete An RR From An RRset
+// This is for "standard" add and delete of RR. Not of the whole delgation.
+// as per RFC2136
+// 2.5.1 add single RR      NAME specified. TYPE specified. CLASS IN.   RDATA specified. TTL specified
+// 2.2.2 Delete an RR Set   NAME specified. TYPE specified. CLASS ANY.  RDATA blank.     TTL 0
+// 2.2.3 Delete all RR Sets NAME specified. TYPE ANY.       CLASS ANY.  RDATA blank.     TTL 0
+// 2.2.4 Delete a single RR NAME specified. TYPE specified. CLASS NONE. RDATA specified. TTL 0
 // returns are DNS error codes
 int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
-// TODO
-  MYSQL_STMT *stmt;
-  MYSQL_BIND bind[7];
+
+  MYSQL_STMT *stmt=NULL;
+  MYSQL_BIND bind[8];
   memset(bind, 0, sizeof(bind));
-  int rc=0;  // row count
-  int zone_id;
+  int zone_id=0;
   size_t len1,len2,len3,len4;
   char rr_status[MYSQL_STRLEN];
   memset(rr_status,'\0',MYSQL_STRLEN);
@@ -1077,13 +1080,21 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
   ldns_rr_type l_rr_type;
   ldns_rr_class rr_class;
   ldns_status l_status;
-  ldns_buffer *buf=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+  ldns_rdf_type l_rdf_type;
+  ldns_rdf *l_rdf=NULL;
+  ldns_buffer *buf1=NULL;
+  ldns_buffer *buf2=NULL;
+  char stmt_str[160]; // only used for fixed length queries defined below
+  char *tmp=NULL;
 
   char *TXT="TXT";
   char *NS="NS";
   char *AAAA="AAAA";
   char *DS="DS";
+  char *ANY="ANY";
   char *rr_type;
+  int ignore_type=0;
+  int ignore_rdata=0;
 
   if ( (zone==NULL) || (strlen(zone)<2)  ) {
     printf("dm_tofu_insert_rr: needs a valid zone\n");
@@ -1092,60 +1103,177 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
 
   time_t rr_status_time=(slot_time>0) ? slot_time : get_time_slot(0);
 
-  // check if this is an add or delete
+  if (rr==NULL) { 
+    return LDNS_RCODE_FORMERR;
+  }
+
   rr_class=ldns_rr_get_class(rr);
-  if (rr_class==LDNS_RR_CLASS_NONE) {
+  // ignore rdata for class=any
+  if ( rr_class==LDNS_RR_CLASS_ANY ) {
+    ignore_rdata=1;
+  }
+  // check if this is an add or delete
+  if ( (rr_class==LDNS_RR_CLASS_NONE) || (rr_class==LDNS_RR_CLASS_ANY) ) {
     strcpy(rr_status,"deleting");
-    // ignore TTL from the rr
+    // ignore TTL from the rr. It must be 0 and ignored anyway.
     rr_ttl=0;
   } else if (rr_class!=LDNS_RR_CLASS_IN) { // only works for IN (Internet) Class
     return LDNS_RCODE_FORMERR;
   } else {
-    strcpy(rr_status,"adding");
+    strcpy(rr_status,"creating");
     rr_ttl=ldns_rr_ttl(rr);
-  }
-
-  // ignore short TTL
-  if (rr_ttl<600) {
-    rr_ttl=600;
+    // ignore short TTL on adds. This is not standard, but our own limit.
+    if (rr_ttl<600) {
+      rr_ttl=600;
+    }
   }
 
   l_rr_type=ldns_rr_get_type(rr);
-  if (dm_tofu_is_valid_l_rr_type(l_rr_type)<0) {
+  if ( (dm_tofu_is_valid_l_rr_type(l_rr_type)<0) && ( !((rr_class==LDNS_RR_CLASS_ANY)&&(l_rr_type==LDNS_RR_TYPE_ANY) ) ) ) {
     return LDNS_RCODE_REFUSED ; // we don't handle this type of RR
   }
 
+  // Gather the data for the query params
+  //
+  //
+  int i=0;
+  printf("ldns_rr_rd_count %lu\n",ldns_rr_rd_count(rr));
+  for (i=0;i<ldns_rr_rd_count(rr);i++) {
+        l_rdf=ldns_rr_rdf(rr,i); // grab the rdf
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+	printf("ldns_rdf_type %i %u\n",i,l_rdf_type);
+  }
   switch (l_rr_type) { // translate LDNS RR type to a text string for entry in the db
     case LDNS_RR_TYPE_TXT:
       rr_type=TXT;
+      if (ignore_rdata==0) {
+	if (ldns_rr_rd_count(rr)!=1) {
+          return LDNS_RCODE_FORMERR;
+	}
+        l_rdf=ldns_rr_rdf(rr,0); // grab the first rdf. There is only one for TXT.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_STR ) { // we should only have dname rdf in an ns rr
+          return LDNS_RCODE_FORMERR;
+        }
+        buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+        ldns_rdf2buffer_str(buf1,l_rdf);
+        tmp=ldns_buffer_export2str(buf1);
+        strcpy(rr_rdata,tmp);
+        ldns_buffer_free(buf1);
+        LDNS_FREE(tmp);
+      }
+      printf("RDATA %s\n",rr_rdata);
       break;
     case LDNS_RR_TYPE_AAAA:
       rr_type=AAAA;
+      if (ignore_rdata==0) {
+	if (ldns_rr_rd_count(rr)!=1) {
+          return LDNS_RCODE_FORMERR;
+	}
+        l_rdf=ldns_rr_rdf(rr,0); // grab the first rdf. There is only one for AAAA.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_AAAA ) { // we should only have aaaa rdf in an aaaa rr
+          return LDNS_RCODE_FORMERR;
+        }
+        buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+        ldns_rdf2buffer_str_aaaa(buf1,l_rdf);
+        tmp=ldns_buffer_export2str(buf1);
+        strcpy(rr_rdata,tmp);
+        ldns_buffer_free(buf1);
+        LDNS_FREE(tmp);
+      }
+      printf("RDATA %s\n",rr_rdata);
       break;
     case LDNS_RR_TYPE_DS:
       rr_type=DS;
+      if (ignore_rdata==0) {
+	if (ldns_rr_rd_count(rr)!=4) { // DS has 4 RDF
+          return LDNS_RCODE_FORMERR;
+	}
+        l_rdf=ldns_rr_rdf(rr,0); // grab the first rdf.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_INT16 ) { // key tag
+          return LDNS_RCODE_FORMERR;
+        }
+        buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN); // potential memory leak here due to early return
+        ldns_rdf2buffer_str_int16(buf1,l_rdf);
+	ldns_buffer_printf(buf1,"%s"," ");
+        l_rdf=ldns_rr_rdf(rr,1); // grab the second rdf.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_ALG ) { // key algorithm number
+          return LDNS_RCODE_FORMERR;
+        }
+        ldns_rdf2buffer_str_alg(buf1,l_rdf);
+	ldns_buffer_printf(buf1,"%s"," ");
+        l_rdf=ldns_rr_rdf(rr,2); // grab the third rdf.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_INT8 ) { // digest type
+          return LDNS_RCODE_FORMERR;
+        }
+        ldns_rdf2buffer_str_int8(buf1,l_rdf);
+	ldns_buffer_printf(buf1,"%s"," ");
+        l_rdf=ldns_rr_rdf(rr,3); // grab the fourth rdf.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_HEX ) { // hex digest
+          return LDNS_RCODE_FORMERR;
+        }
+        ldns_rdf2buffer_str_hex(buf1,l_rdf);
+        tmp=ldns_buffer_export2str(buf1);
+        strcpy(rr_rdata,tmp);
+        ldns_buffer_free(buf1);
+        LDNS_FREE(tmp);
+      }
+      printf("RDATA %s\n",rr_rdata);
       break;
     case LDNS_RR_TYPE_NS:
       rr_type=NS;
+      if (ignore_rdata==0) {
+        l_rdf=ldns_rr_rdf(rr,0); // grab the first rdf. There is only one for NS.
+        l_rdf_type=ldns_rdf_get_type(l_rdf);
+        if (l_rdf_type!=LDNS_RDF_TYPE_DNAME ) { // we should only have dname rdf in an ns rr
+          return LDNS_RCODE_FORMERR;
+        }
+        buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+        ldns_rdf2buffer_str_dname(buf1,l_rdf);
+        tmp=ldns_buffer_export2str(buf1);
+        strcpy(rr_rdata,tmp);
+        ldns_buffer_free(buf1);
+        LDNS_FREE(tmp);
+      }
+      printf("RDATA %s\n",rr_rdata);
       break;
+    case LDNS_RR_TYPE_ANY:
+      if ((rr_class==LDNS_RR_CLASS_ANY)) { // only valid in combinaton with class = ANY
+        rr_type=ANY;
+	ignore_type=1;
+        break;
+      } else {
+       return LDNS_RCODE_FORMERR; // should never be reached, but this is an illegal combo
+      }
     default:
       return LDNS_RCODE_REFUSED; // should never be reached
-   }  
+  }  
+
+  printf("RR Type :%s: %lu\n",rr_type,strlen(rr_type));
 
   if (!ldns_rr_owner(rr)) {
     return LDNS_RCODE_FORMERR;;
   }
-  l_status = ldns_rdf2buffer_str_dname(buf, ldns_rr_owner(rr));
-  strcpy(rr_owner,(char *)ldns_buffer_export(buf));
-  ldns_buffer_free(buf);
+  buf2=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+  l_status = ldns_rdf2buffer_str_dname(buf2, ldns_rr_owner(rr));
+  tmp=ldns_buffer_export2str(buf2);
+  strcpy(rr_owner,tmp);
+  ldns_buffer_free(buf2); // doesn't free buffer data
+  LDNS_FREE(tmp);
+  printf("RR_OWNER %s\n",rr_owner);
 
   if ( (l_status != LDNS_STATUS_OK) || (strlen (rr_owner)>MYSQL_STRLEN) ) { //  name too long for db or munged name
     return LDNS_RCODE_FORMERR;
   }
-  strcpy(rr_owner,(char *)ldns_buffer_export(buf));
 
-  // insert the rr
-  stmt=mysql_stmt_init(db);
+
+  if (strcmp(rr_status,"creating")==0) {
+  // insert the rr for creating
   // zone_id INT DEFAULT 0,    /* link to zone */
   //   rr_owner VARCHAR(80),     /* the owner of this RR i.e. what is queried */
   //     rr_ttl INT DEFAULT 3600,  /* TTL for this RR */
@@ -1153,12 +1281,11 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
   //     rr_rdata VARCHAR(80),        /* the content associated with this owner */
   //     rr_status ENUM ('creating','created','deleting'), /* current status for state machine */
   //     rr_status_time   BIGINT SIGNED DEFAULT 0, /* time of last status change */
-  char *stmt_str="INSERT INTO rr (`zone_id`,`rr_owner`,`rr_ttl`,`rr_type`,`rr_rdata`,`rr_status`,`rr_status_time``) VALUES (?,?,?,?,?,?,?);";
-  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
-    printf ("Insert rr: prepare failed. %s\n",mysql_stmt_error(stmt));
-    mysql_stmt_close(stmt);
-    return LDNS_RCODE_SERVFAIL;
-  }
+  //
+  strcpy(stmt_str,"INSERT INTO rr (`zone_id`,`rr_owner`,`rr_ttl`,`rr_type`,`rr_rdata`,`rr_status`,`rr_status_time`) VALUES (?,?,?,?,?,?,?);");
+  printf("STMT %s\n",stmt_str);
+  //stmt_str="INSERT INTO rr (`zone_id`,`rr_owner`,`rr_ttl`,`rr_type`,`rr_rdata`,`rr_status`,`rr_status_time`) VALUES (?,?,?,?,?,?,?);";
+  printf("VARS %i %s %i %s %s %s %lu\n",zone_id,rr_owner,rr_ttl,rr_type,rr_rdata,rr_status,rr_status_time);
 
   bind[0].buffer_type= MYSQL_TYPE_LONG;
   bind[0].buffer= (char *)&zone_id;
@@ -1202,6 +1329,77 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
   bind[6].buffer= (char *)&rr_status_time;
   bind[6].is_null= 0;
   bind[6].length= 0;
+  } else {
+
+  // update an existing rr for deleting.
+  strcpy(stmt_str,"UPDATE rr AS A SET rr_status=?, rr_status_time=? WHERE ( (`zone_id`=?) AND (`rr_owner`=?) AND ((`rr_type`=?) OR (1=?))  AND ((`rr_rdata`=?) OR (1=?)) );");
+  printf("STMT %s\n",stmt_str);
+  //printf("VARS %s %lu %i %s %i %s %s\n",rr_status,rr_status_time,zone_id,rr_owner,rr_ttl,rr_type,rr_rdata);
+  printf("VARS %s %lu %i %s %s %i %s %i\n",rr_status,rr_status_time,zone_id,rr_owner,rr_type,ignore_type,rr_rdata,ignore_rdata);
+  // similar params but different order and ttl not used
+  //
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)rr_status;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len4=strlen(rr_status);
+  bind[0].length= &len4;
+
+  bind[1].buffer_type= MYSQL_TYPE_LONGLONG;
+  bind[1].buffer= (char *)&rr_status_time;
+  bind[1].is_null= 0;
+  bind[1].length= 0;
+
+  bind[2].buffer_type= MYSQL_TYPE_LONG;
+  bind[2].buffer= (char *)&zone_id;
+  bind[2].is_null= 0;
+  bind[2].length= 0;
+
+  bind[3].buffer_type= MYSQL_TYPE_STRING;
+  bind[3].buffer= (char *)rr_owner;
+  bind[3].buffer_length= MYSQL_STRLEN;
+  bind[3].is_null= 0;
+  len1=strlen(rr_owner);
+  bind[3].length= &len1;
+
+  //bind[4].buffer_type= MYSQL_TYPE_LONG;
+  //bind[4].buffer= (char *)&rr_ttl;
+  //bind[4].is_null= 0;
+  //bind[4].length= 0;
+
+  bind[4].buffer_type= MYSQL_TYPE_STRING;
+  bind[4].buffer= (char *)rr_type;
+  bind[4].buffer_length= MYSQL_STRLEN;
+  bind[4].is_null= 0;
+  len2=strlen(rr_type);
+  bind[4].length= &len2;
+
+  bind[5].buffer_type= MYSQL_TYPE_LONG;
+  bind[5].buffer= (char *)&ignore_type;
+  bind[5].is_null= 0;
+  bind[5].length= 0;
+
+  bind[6].buffer_type= MYSQL_TYPE_STRING;
+  bind[6].buffer= (char *)rr_rdata;
+  bind[6].buffer_length= MYSQL_STRLEN;
+  bind[6].is_null= 0;
+  len3=strlen(rr_rdata);
+  bind[6].length= &len3;
+
+  bind[7].buffer_type= MYSQL_TYPE_LONG;
+  bind[7].buffer= (char *)&ignore_rdata;
+  bind[7].is_null= 0;
+  bind[7].length= 0;
+
+  }
+
+
+  stmt=mysql_stmt_init(db);
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("Insert rr: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return LDNS_RCODE_SERVFAIL;
+  }
 
   if (mysql_stmt_bind_param(stmt, bind)) {
     printf("dm_tofu_insert_rr: bind failed %s\n",mysql_stmt_error(stmt));
@@ -1214,10 +1412,9 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
     return LDNS_RCODE_SERVFAIL;
   }
 
-  rc=mysql_affected_rows(db);
   mysql_stmt_close(stmt);
 
-  return rc;
+  return LDNS_RCODE_NOERROR;
 
 }
 
