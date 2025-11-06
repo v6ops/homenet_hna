@@ -117,7 +117,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // inserting to the DB will fail with LDNS_RCODE_REFUSED
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,0);
+  ret=dm_tofu_insert_rr(db,1,rr,0);
   CU_ASSERT(LDNS_RCODE_REFUSED==ret); // we don't do A RR
 
   ldns_rr_free(rr);
@@ -128,7 +128,7 @@ void dm_tofu_test(void) {
   }
 
 
-  // create an AAAA RR
+  // create an AAAA RR RFC 2136 2.5.1
   char *rr_string2 = "www.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
   l_status = ldns_rr_new_frm_str(&rr,rr_string2,600,origin,&prev);
   CU_ASSERT(LDNS_STATUS_OK==l_status);
@@ -141,7 +141,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // inserting to the DB with success
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
 
   CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
 
@@ -155,7 +155,7 @@ void dm_tofu_test(void) {
   get_testdb("./testdata/got_dm_tofu10.sql");
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu10.sql","./testdata/got_dm_tofu10.sql"));
 
-  // delete an AAAA RR ttl 0 class none
+  // delete an AAAA RR ttl 0 class none RFC 2136 2.5.4
   char *rr_string3 = "www.example.com.	0	NONE	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
   l_status = ldns_rr_new_frm_str(&rr,rr_string3,600,origin,&prev);
   CU_ASSERT(LDNS_STATUS_OK==l_status);
@@ -168,7 +168,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // delte to the DB with success
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328460);
+  ret=dm_tofu_insert_rr(db,1,rr,1762328460);
 
   CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record updated
 
@@ -183,7 +183,7 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu11.sql","./testdata/got_dm_tofu11.sql"));
 
 
-  // create an NS RR
+  // create an NS RR RFC 2136 2.5.1
   char *rr_string4 = "www.example.com.	600	IN	NS ns1.zone1.homenetinfra.com.";
   l_status = ldns_rr_new_frm_str(&rr,rr_string4,600,origin,&prev);
   CU_ASSERT(LDNS_STATUS_OK==l_status);
@@ -196,7 +196,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // inserting to the DB with success
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
 
   CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
 
@@ -211,7 +211,7 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu12.sql","./testdata/got_dm_tofu12.sql"));
 
 
-  // create an TXT RR
+  // create an TXT RR RFC 2136 2.5.1
   char *rr_string5 = "www.example.com.	600	IN	TXT	\"Welcome to the example domain!\"";
   l_status = ldns_rr_new_frm_str(&rr,rr_string5,600,origin,&prev);
   CU_ASSERT(LDNS_STATUS_OK==l_status);
@@ -224,7 +224,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // inserting to the DB with success
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
 
   CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
 
@@ -239,7 +239,7 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu13.sql","./testdata/got_dm_tofu13.sql"));
 
 
-  // create an DS RR
+  // create an DS RR RFC 2136 2.5.1
   char *rr_string6 = "www.example.com.	600	IN	DS      26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
   l_status = ldns_rr_new_frm_str(&rr,rr_string6,600,origin,&prev);
   CU_ASSERT(LDNS_STATUS_OK==l_status);
@@ -252,7 +252,7 @@ void dm_tofu_test(void) {
     LDNS_FREE(str);
   }
   // inserting to the DB with success
-  ret=dm_tofu_insert_rr(db,"example.com.",rr,1762328400);
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
 
   CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
 
@@ -265,6 +265,114 @@ void dm_tofu_test(void) {
 
   get_testdb("./testdata/got_dm_tofu14.sql");
   CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu14.sql","./testdata/got_dm_tofu14.sql"));
+
+
+  // create 2nd DS RR with a separate key tag RFC 2136 2.5.1
+  char *rr_string7 = "www.example.com.	600	IN	DS      26161 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string7,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	600	IN	DS	26161 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu15.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu15.sql","./testdata/got_dm_tofu15.sql"));
+
+  // delete all DS RR Set for all key tags RFC 2136 2.5.2
+  //char *rr_string8 = "www.example.com.	0	ANY	DS	26163 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  // rdata = blank. ttl 0. class any. type DS
+  char *rr_string8 = "www.example.com.	0	ANY	DS	\\# 0";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string8,000,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    //CU_ASSERT(0==cmp_array(str,"www.example.com.	0	ANY	DS	26163 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539\n",strlen(str)));
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	0	ANY	DS	\\# 0\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 2 DS records updated
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+
+  get_testdb("./testdata/got_dm_tofu16.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu16.sql","./testdata/got_dm_tofu16.sql"));
+
+  // delete all RR for all name www.example.com RFC 2136 2.5.3
+  // strictly speaking the rdata should be blank but can't figure out how to create that in ldns. Problem for later
+  //char *rr_string9 = "www.example.com.	0	ANY	ANY";
+  //l_status = ldns_rr_new_frm_str(&rr,rr_string9,000,origin,&prev);
+  rr=ldns_rr_new();
+  ldns_rr_set_class(rr,LDNS_RR_CLASS_ANY);
+  ldns_rr_set_ttl(rr,0);
+  ldns_rr_set_type(rr,LDNS_RR_TYPE_ANY);
+  ldns_rr_set_rd_count(rr,0); // no rdata
+  ldns_rdf *rd;
+  ldns_str2rdf_dname(&rd,"www.example.com.");
+  ldns_rr_set_owner(rr,rd);
+
+  //CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"www.example.com.	0	ANY	ANY	\\# 0\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,1762328400);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 NS & 1 TXT records updated
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  get_testdb("./testdata/got_dm_tofu17.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu17.sql","./testdata/got_dm_tofu17.sql"));
+
+  // test change of status of rr
+  CU_ASSERT(1==dm_tofu_update_rr_status(db, 1, "created", 1762328480));
+  CU_ASSERT(1==dm_tofu_update_rr_status(db, 3, "created", 1762328560));
+  CU_ASSERT(-1==dm_tofu_update_rr_status(db, 4, "garbage", 1762328560));
+  get_testdb("./testdata/got_dm_tofu18.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu18.sql","./testdata/expected_dm_tofu18.sql"));
+
+  // clean these rr's from the db for subsequent tests
+  CU_ASSERT(1==dm_tofu_delete_rr(db, 1));
+  CU_ASSERT(1==dm_tofu_delete_rr(db, 2));
+  CU_ASSERT(1==dm_tofu_delete_rr(db, 3));
+  CU_ASSERT(1==dm_tofu_delete_rr(db, 4));
+  CU_ASSERT(1==dm_tofu_delete_rr(db, 5));
 
 
 

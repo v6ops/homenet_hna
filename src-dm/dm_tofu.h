@@ -358,7 +358,7 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id);
 // delete db entry for rr with this rr_id
 int dm_tofu_delete_rr(MYSQL *db, int rr_id);
 
-int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time);
+int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time);
 
 
 // update db for the rr rr_id to new rr_status

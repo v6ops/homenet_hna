@@ -1052,7 +1052,7 @@ int dm_tofu_is_valid_l_rr_type (ldns_rr_type l_rr_type) {
 
 
 
-// insert db entry into zone for the ldns_rr
+// insert db entry into zone for ONE ldns_rr
 // ldns_rr typically comes from the Update/Authority field of a DNS packet
 // zone comes from the Zone section/Question field
 // all validity checks should have already been done before calling.
@@ -1063,12 +1063,17 @@ int dm_tofu_is_valid_l_rr_type (ldns_rr_type l_rr_type) {
 // 2.2.3 Delete all RR Sets NAME specified. TYPE ANY.       CLASS ANY.  RDATA blank.     TTL 0
 // 2.2.4 Delete a single RR NAME specified. TYPE specified. CLASS NONE. RDATA specified. TTL 0
 // returns are DNS error codes
-int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
+int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time) {
 
   MYSQL_STMT *stmt=NULL;
   MYSQL_BIND bind[8];
   memset(bind, 0, sizeof(bind));
-  int zone_id=0;
+
+  if (zone_id<1) {
+    printf("dm_tofu_insert_rr: needs a valid zone\n");
+    return LDNS_RCODE_NOTZONE; // we don't have this zone under management
+  }
+
   size_t len1,len2,len3,len4;
   char rr_status[MYSQL_STRLEN];
   memset(rr_status,'\0',MYSQL_STRLEN);
@@ -1095,11 +1100,6 @@ int dm_tofu_insert_rr(MYSQL *db, char *zone, ldns_rr *rr, time_t slot_time) {
   char *rr_type;
   int ignore_type=0;
   int ignore_rdata=0;
-
-  if ( (zone==NULL) || (strlen(zone)<2)  ) {
-    printf("dm_tofu_insert_rr: needs a valid zone\n");
-    return -1;
-  }
 
   time_t rr_status_time=(slot_time>0) ? slot_time : get_time_slot(0);
 
