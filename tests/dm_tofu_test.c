@@ -498,6 +498,71 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu22.sql","./testdata/expected_dm_tofu22.sql"));
   
 
+  // DB Test 8. Move 1 zone into delegating state with an NS
+  //
+  // 1,'linear.realm.piece.floor.example.com',NULL,0,'example.com',0,'delegating',960),
+  //
+  // create an NS RR
+  char *rr_string23 = "linear.realm.piece.floor.example.com.	600	IN	NS	hna-1.linear.realm.piece.floor.example.com.";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string23,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"linear.realm.piece.floor.example.com.	600	IN	NS	hna-1.linear.realm.piece.floor.example.com.\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,TIME2+360);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  // create an AAAA RR glue
+  char *rr_string24 = "hna-1.linear.realm.piece.floor.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string24,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"hna-1.linear.realm.piece.floor.example.com.	600	IN	AAAA	2001:470:1f15:62e:21c:c4ff:fec9:de16\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,TIME2+360);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  CU_ASSERT(1==dm_tofu_update_zone_status(db,1,"delegating",TIME2+360));
+
+  get_testdb("./testdata/got_dm_tofu24.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu24.sql","./testdata/got_dm_tofu24.sql"));
+
+
+
+  // DBTest 9. move 1 of them to delegated state at TIME2+420
+  dm_tofu_delegating_to_delegated(db, "example.com", TIME2+420);
+  get_testdb("./testdata/got_dm_tofu25.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu25.sql","./testdata/expected_dm_tofu25.sql"));
+  
+
+
+
 
 
 

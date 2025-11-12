@@ -1090,6 +1090,7 @@ int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time) {
   ldns_buffer *buf1=NULL;
   ldns_buffer *buf2=NULL;
   char stmt_str[160]; // only used for fixed length queries defined below
+  memset(stmt_str,'\0',sizeof(stmt_str));
   char *tmp=NULL;
 
   char *TXT="TXT";
@@ -2932,7 +2933,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       if ( (rc2>0) || (rc3>0) ) { // we've updated something, so bump the SOA
         fprintf(fd_knotc_zone,"zone-serial-set %s +1\n",ll_zone_current->zone_name);
       }
-      // close this zone transactin for assigning
+      // close this zone transaction for assigning
       fprintf(fd_knotc_zone,"zone-commit %s\n",ll_zone_current->zone_name);
     } else if (strcmp(zone_status,"delegating")==0) {
       // get the list of rr deleting status and unset them in the parent zone or remove the config
@@ -2946,10 +2947,13 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
             printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);
             fprintf(fd_knotc_zone,"zone-unset %s %s %i %s %s\n",parent_name,ll_rr_current->rr_owner,ll_rr_current->rr_ttl,ll_rr_current->rr_type,ll_rr_current->rr_rdata);
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"deleted"); // remember rr_id for db status update after exec command file
-          } else if ( (strcmp(ll_rr_current->rr_type,"NS")==0) ) { 
+          } else if ( (strcmp(ll_rr_current->rr_type,"NS")==0) ) { // NS has to be done first
             printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);
             fprintf(fd_knotc_config,"conf-unset \'zone[%s].master\'\n",ll_zone_current->zone_name); // unset master
-            fprintf(fd_knotc_config,"conf-unset \'remote[%s]\'\n",ll_rr_current->rr_owner); // remove remote and all addresses
+            push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"deleted"); // remember rr_id for db status update after exec command file
+          } else if ( (strcmp(ll_rr_current->rr_type,"AAAA")==0) ) { 
+            printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);
+            fprintf(fd_knotc_config,"conf-unset remote[\'%s\']\n",ll_rr_current->rr_owner); // remove remote and all addresses
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"deleted"); // remember rr_id for db status update after exec command file
           }
           // get next rr
@@ -2968,10 +2972,14 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
             printf("dm_tofu_ns_update: assigning rr %s\n",ll_rr_current->rr_owner);
             fprintf(fd_knotc_zone,"zone-set %s %s %i %s %s\n",parent_name,ll_rr_current->rr_owner,ll_rr_current->rr_ttl,ll_rr_current->rr_type,ll_rr_current->rr_rdata);
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"created"); // remember rr_id for db status update after exec command file
+          } else if ( (strcmp(ll_rr_current->rr_type,"AAAA")==0) ) { // AAAA has to be done first otherwise knotc commplains
+            printf("dm_tofu_ns_update: setting rr %s\n",ll_rr_current->rr_owner);
+            fprintf(fd_knotc_config,"conf-set remote[\'%s\']\n",ll_rr_current->rr_owner); // create id for remote
+            fprintf(fd_knotc_config,"conf-set remote[\'%s\'].address \'%s\'\n",ll_rr_current->rr_owner,ll_rr_current->rr_rdata); // set address for remote
+            push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"created"); // remember rr_id for db status update after exec command file
           } else if ( (strcmp(ll_rr_current->rr_type,"NS")==0) ) { 
             printf("dm_tofu_ns_update: setting rr %s\n",ll_rr_current->rr_owner);
-            fprintf(fd_knotc_config,"conf-set \'remote[%s].address\' %s\n",ll_rr_current->rr_owner,ll_rr_current->rr_rdata); // set id and address for remote
-            fprintf(fd_knotc_config,"conf-set \'zone[%s].master\' %s \n",ll_zone_current->zone_name,ll_rr_current->rr_owner); // set master
+            fprintf(fd_knotc_config,"conf-set zone[\'%s\'].master \'%s\'\n",ll_zone_current->zone_name,ll_rr_current->rr_rdata); // set master
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"created"); // remember rr_id for db status update after exec command file
           }
           // get next rr
@@ -3171,6 +3179,7 @@ int dm_tofu_timeout_delegated_zone(MYSQL *db, char *parent_name, time_t slot_tim
 
 // create a linked list of rr under this zone with this rr_status
 // returns rc or -1 on failure
+// order depending on deleting or adding
 int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **ll_rr_head) {
 
   ll_rr_t *ll_rr_tmp=NULL;
@@ -3200,7 +3209,13 @@ int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **
   }
 
   stmt=mysql_stmt_init(db);
-  char *stmt_str="SELECT A.rr_id, A.rr_owner, A.rr_ttl, A.rr_type, A.rr_rdata FROM rr AS A WHERE A.zone_id=? AND A.rr_status=?; ";
+  char stmt_str[160];
+  memset(stmt_str,'\0',sizeof(stmt_str));
+  if (strcmp(rr_status,"creating")==0) { // for creating we want aaaa (high rr_type) before ns (low rr_type). It's a bit of a kludge but it works.
+    strcpy(stmt_str,"SELECT A.rr_id, A.rr_owner, A.rr_ttl, A.rr_type, A.rr_rdata FROM rr AS A WHERE A.zone_id=? AND A.rr_status=? ORDER BY A.zone_id, A.rr_type DESC;");
+  } else {
+    strcpy(stmt_str,"SELECT A.rr_id, A.rr_owner, A.rr_ttl, A.rr_type, A.rr_rdata FROM rr AS A WHERE A.zone_id=? AND A.rr_status=? ORDER BY A.zone_id, A.rr_type;");
+  }
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("dm_tofu_select_rr_status: prepare failed. %s\n",mysql_stmt_error(stmt));
