@@ -551,7 +551,7 @@ void dm_tofu_test(void) {
   CU_ASSERT(1==dm_tofu_update_zone_status(db,1,"delegating",TIME2+360));
 
   get_testdb("./testdata/got_dm_tofu24.sql");
-  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu24.sql","./testdata/got_dm_tofu24.sql"));
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu24.sql","./testdata/expected_dm_tofu24.sql"));
 
 
 
