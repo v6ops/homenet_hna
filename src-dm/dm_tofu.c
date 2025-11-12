@@ -1136,12 +1136,12 @@ int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time) {
   // Gather the data for the query params
   //
   //
-  int i=0;
+  size_t i=0;
   printf("ldns_rr_rd_count %lu\n",ldns_rr_rd_count(rr));
   for (i=0;i<ldns_rr_rd_count(rr);i++) {
         l_rdf=ldns_rr_rdf(rr,i); // grab the rdf
         l_rdf_type=ldns_rdf_get_type(l_rdf);
-	printf("ldns_rdf_type %i %u\n",i,l_rdf_type);
+	printf("ldns_rdf_type %li %u\n",i,l_rdf_type);
   }
   switch (l_rr_type) { // translate LDNS RR type to a text string for entry in the db
     case LDNS_RR_TYPE_TXT:
@@ -1575,6 +1575,172 @@ int dm_tofu_delete_zone(MYSQL *db, int zone_id) {
   mysql_stmt_close(stmt);
 
   return rc;
+
+}
+
+// prescan an update packet as per RFC2136 section 3.4.1
+// returns an LDNS packet error code
+int dm_tofu_update_prescan(MYSQL *db, const ldns_pkt *p) {
+/*
+
+   CLASS    TYPE     RDATA    TTL  Meaning
+   ---------------------------------------------------------
+   ANY      ANY      empty         Delete all RRsets from a name
+   ANY      rrset    empty         Delete an RRset
+   NONE     rrset    rr            Delete an RR from an RRset
+   zone     rrset    rr            Add to an RRset
+
+ 	[rr] for rr in updates
+           if (zone_of(rr.name) != ZNAME)
+                return (NOTZONE);
+
+           if (rr.class == zclass)
+                if (rr.type & ANY|AXFR|MAILA|MAILB) // add must be specific type
+                     return (FORMERR)
+
+           elsif (rr.class == ANY)
+                if (rr.ttl != 0 || rr.rdlength != 0 // delete must have no rdata and ttl==0
+                    || rr.type & AXFR|MAILA|MAILB)  // these types cannot be deleted
+                     return (FORMERR)
+
+           elsif (rr.class == NONE)
+                if (rr.ttl != 0 || rr.type & ANY|AXFR|MAILA|MAILB) // specific RR to delete must have ttl==0
+                     return (FORMERR)
+
+           else   // rr.class!=zclass||ANY||NONE
+                return (FORMERR) 
+*/
+
+  ldns_pkt_opcode l_opcode=0; // check this is an update packet. Otherwise we shouldn't have got here.
+  l_opcode=ldns_pkt_get_opcode(p);
+  if (l_opcode !=  LDNS_PACKET_UPDATE) {
+    printf("dm_tofu_update_prescan: unexpected opcode in update packet. %i\n",l_opcode);
+    return LDNS_RCODE_FORMERR;
+  }
+
+  // get the zone name from the question/zone section
+  char zname[LDNS_MAX_DOMAINLEN];
+  // check there is exactly 1 RR in the zone/question section
+  uint16_t l_qdcount=0;
+  l_qdcount=ldns_pkt_qdcount(p);
+  if (l_qdcount!=1) {
+    printf("dm_tofu_update_prescan: unexpected number of zones in update packet question section. %i\n",l_qdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+
+  ldns_rr_list *l_rr_question_list;
+  l_rr_question_list=ldns_pkt_question(p);
+  if (l_rr_question_list==NULL) { // if there no zone list
+    return LDNS_RCODE_FORMERR;
+  }
+  ldns_rr_list *l_rr_auth_list;
+  l_rr_auth_list=ldns_pkt_authority(p);
+  if (l_rr_auth_list==NULL) { // if there no update list
+    return LDNS_RCODE_FORMERR;
+  }
+  ldns_rr *l_rr_zone; 
+  l_rr_zone=ldns_rr_list_rr(l_rr_question_list,0);
+  if (l_rr_zone==NULL) { // if there's no 1st element
+    return LDNS_RCODE_FORMERR;
+  }
+
+  if (ldns_rr_rd_count(l_rr_zone)!=1) { // if there's not exactly one domain name in the zone rr
+    return LDNS_RCODE_FORMERR;
+  }
+  ldns_buffer *buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+  ldns_rdf *zrdf=ldns_rr_owner(l_rr_zone);
+  ldns_status l_status = ldns_rdf2buffer_str_dname(buf1, zrdf);
+  if (l_status!=LDNS_STATUS_OK ) {
+    return LDNS_RCODE_FORMERR;
+  }
+  char *tmp1=ldns_buffer_export2str(buf1);
+  strcpy(zname,tmp1);
+  ldns_buffer_free(buf1); // doesn't free buffer data
+  LDNS_FREE(tmp1);
+
+  ldns_rr_class zclass=ldns_rr_get_class (l_rr_zone);
+  // we only serve class IN as our own admin choice
+  if (zclass!=LDNS_RR_CLASS_IN) {
+    printf("dm_tofu_update_prescan: don't serve this class. %i\n",zclass);
+    return LDNS_RCODE_NOTAUTH;
+  }
+
+  printf("zname %s zclass %i\n",zname,zclass);
+
+  // Check zname is contained in one of our parents.
+  char *my_parent=dm_tofu_get_parent(db, zname);
+  if (my_parent==NULL) {
+    printf("dm_tofu_update_prescan: don't serve this parent. %s\n",zname);
+    return LDNS_RCODE_NOTAUTH;
+  }
+
+  // Step through the authority/update section
+  uint16_t l_nscount=0;
+  l_nscount=ldns_pkt_nscount(p);
+  if (l_nscount<1) {
+    printf("dm_tofu_update_prescan: unexpected number of zones in update packet authorty section. %i\n",l_nscount);
+    return LDNS_RCODE_FORMERR;
+  }
+  uint16_t i;
+  for (i=0;i<l_nscount;i++) {
+    ldns_rr *rr;
+    rr=ldns_rr_list_rr(l_rr_auth_list,i);
+    // if (zone_of(rr.name) != ZNAME)
+    //   return (NOTZONE);
+    ldns_rdf *rdf=ldns_rr_owner(rr);
+    if (!ldns_rr_owner(rr)) {
+      return LDNS_RCODE_NOTZONE;
+    }
+    /*
+    ldns_buffer *buf2=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+    l_status = ldns_rdf2buffer_str_dname(buf2, ldns_rr_owner(rr));
+    char *tmp2=ldns_buffer_export2str(buf2);
+    strcpy(rr_owner,tmp);
+    ldns_buffer_free(buf2); // doesn't free buffer data
+    LDNS_FREE(tmp2);
+    */
+    // the rr and zone are not equal and rr is not a subzone of zone
+    if ( (ldns_dname_compare(rdf,zrdf)!=0) && (!ldns_dname_is_subdomain(rdf,zrdf)) ) {
+      return LDNS_RCODE_NOTZONE;
+    }
+
+    // if (rr.class == zclass)
+    //   if (rr.type & ANY|AXFR|MAILA|MAILB) // add must be specific type
+    //     return (FORMERR)
+    if (ldns_rr_get_class(rr) == zclass) {
+      if ((ldns_rr_get_type(rr)==LDNS_RR_TYPE_ANY) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) )  {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        return LDNS_RCODE_NOERROR;
+      }
+    } else
+    //  elsif (rr.class == ANY)
+    //    if (rr.ttl != 0 || rr.rdlength != 0 // delete must have no rdata and ttl==0
+    //        || rr.type & AXFR|MAILA|MAILB)  // these types cannot be deleted
+    //      return (FORMERR)
+    if (ldns_rr_get_class(rr) == LDNS_RR_CLASS_ANY) {
+      if ( (ldns_rr_ttl(rr) !=0) || (ldns_rr_rd_count(rr) !=0) || ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) ) ) {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        return LDNS_RCODE_NOERROR;
+      }
+    } else
+    //  elsif (rr.class == NONE)
+    //    if (rr.ttl != 0 || rr.type & ANY|AXFR|MAILA|MAILB) // specific RR to delete must have ttl==0
+    //      return (FORMERR)
+    if (ldns_rr_get_class(rr) == LDNS_RR_CLASS_NONE) {
+      if ( (ldns_rr_ttl(rr) !=0) || ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_ANY) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) ) ) {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        return LDNS_RCODE_NOERROR;
+      } 
+    } else {
+      return LDNS_RCODE_FORMERR;
+    }
+  } // end for loop
 
 }
 
@@ -2665,9 +2831,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
 
       // start knotc transactions
       fprintf(fd_knotc_config,"conf-begin\n");
-      if (strcmp(zone_status,"assigning")==0) { // for everything except assigning, the updates are all in the parent zone
-        fprintf(fd_knotc_zone,"zone-begin %s\n",ll_zone_current->zone_name);
-      } else {
+      if (strcmp(zone_status,"assigning")!=0) { // for everything except assigning, the updates are all in the parent zone
         fprintf(fd_knotc_zone,"zone-freeze %s\n",parent_name);
         fprintf(fd_knotc_zone,"zone-begin %s\n",parent_name);
       }
@@ -2725,6 +2889,8 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       } // end rc>2 (we have RR to delete)
       ll_rr_head=NULL;
     } else if (strcmp(zone_status,"assigning")==0) {
+      // start a transaction for this zone
+      fprintf(fd_knotc_zone,"zone-begin %s\n",ll_zone_current->zone_name);
       // get the list of TXT rr in this zone in deleting status and unset them in the delegated zone
       rc2=dm_tofu_select_rr_status(db, ll_zone_current->zone_id, "deleting", &ll_rr_head);
       if( rc2>0) {
@@ -2760,8 +2926,10 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       } // end rc3>2 (we have TXT RR to create)
       ll_rr_head=NULL;
       if ( (rc2>0) || (rc3>0) ) { // we've updated something, so bump the SOA
-        fprintf(fd_knotc_zone,"zone-serial-set%s +1\n",ll_zone_current->zone_name);
+        fprintf(fd_knotc_zone,"zone-serial-set %s +1\n",ll_zone_current->zone_name);
       }
+      // close this zone transactin for assigning
+      fprintf(fd_knotc_zone,"zone-commit %s\n",ll_zone_current->zone_name);
     } else if (strcmp(zone_status,"delegating")==0) {
       // get the list of rr deleting status and unset them in the parent zone or remove the config
       // delete before create because some objects need to delete the entire object rather than just the sub-item.
@@ -2817,9 +2985,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
     if (ll_zone_tmp==NULL) { // last time through?
       // end knotc transactions
       fprintf(fd_knotc_config,"conf-commit\n");
-      if (strcmp(zone_status,"assigning")==0) { // for everything except assigning, the updates are all in the parent zone
-        fprintf(fd_knotc_zone,"zone-commit %s\n",ll_zone_current->zone_name);
-      } else {
+      if (strcmp(zone_status,"assigning")!=0) { // for everything except assigning, the updates are all in the parent zone
         fprintf(fd_knotc_zone,"zone-commit %s\n",parent_name);
         fprintf(fd_knotc_zone,"zone-thaw %s\n",parent_name);
         fprintf(fd_knotc_zone,"zone-sign %s\n",parent_name);
@@ -2882,7 +3048,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   ll_zone_current=ll_zone_head;
   while (ll_zone_current!=NULL) {
     printf("dm_tofu_ns_update: updating zone %s %li\n",ll_zone_current->zone_name,start_slot);
-    if (strcmp(new_zone_status,"created")==0) {
+    if ( (strcmp(new_zone_status,"created")==0) || (strcmp(new_zone_status,"assigned")==0) ) {
       dm_tofu_update_zone_status(db, ll_zone_current->zone_id, new_zone_status, start_slot);
     } else if (strcmp(new_zone_status,"deleted")==0) {
       dm_tofu_delete_zone(db, ll_zone_current->zone_id);
@@ -3030,7 +3196,7 @@ int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **
   }
 
   stmt=mysql_stmt_init(db);
-  char *stmt_str="SELECT A.rr_id, A.owner FROM rr AS A WHERE A.zone_id=? AND A.rr_status=?; ";
+  char *stmt_str="SELECT A.rr_id, A.rr_owner, A.rr_ttl, A.rr_type, A.rr_rdata FROM rr AS A WHERE A.zone_id=? AND A.rr_status=?; ";
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
     printf ("dm_tofu_select_rr_status: prepare failed. %s\n",mysql_stmt_error(stmt));

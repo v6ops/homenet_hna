@@ -360,6 +360,10 @@ int dm_tofu_delete_rr(MYSQL *db, int rr_id);
 
 int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time);
 
+// prescan an update packet as per RFC2136 section 3.4.1
+// returns an LDNS packet error code
+int dm_tofu_update_prescan(MYSQL *db, const ldns_pkt *p);
+
 
 // update db for the rr rr_id to new rr_status
 int dm_tofu_update_rr_status(MYSQL *db, int rr_id, char *rr_status, time_t slot_time);
