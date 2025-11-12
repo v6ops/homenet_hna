@@ -391,7 +391,7 @@ char *dm_tofu_get_notify_list(MYSQL *db,char *parent_name);
 
 // linked list needed for dm_tofu_get_secondary_ns
 typedef struct ll_secondary_ns {
-  char ns_name[MYSQL_STRLEN];
+  char ns_name[MYSQL_STRLEN+1]; // +1 for possible extra trailing dot
   int infra_id;
   struct ll_secondary_ns *next;
 } ll_secondary_ns_t;
@@ -401,7 +401,7 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) ;
 
 // linked list needed for dm_tofu_creating_to_created and dm_tofu_select_zone_status
 typedef struct ll_zone {
-  char zone_name[MYSQL_STRLEN];
+  char zone_name[MYSQL_STRLEN+1];
   int zone_id;
   struct ll_zone *next;
 } ll_zone_t;

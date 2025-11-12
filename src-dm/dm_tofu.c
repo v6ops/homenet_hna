@@ -2064,6 +2064,7 @@ ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) {
     ll_secondary_ns_current=ll_secondary_ns_tmp;
     ll_secondary_ns_current->infra_id=infra_id;
     strcpy(ll_secondary_ns_current->ns_name,ns_name);
+    ldns_helpers_add_trailing_dot(ll_secondary_ns_current->ns_name);
     rc++;
   }
 
@@ -2669,6 +2670,7 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
     ll_zone_current=ll_zone_tmp;
     ll_zone_current->zone_id=zone_id;
     strcpy(ll_zone_current->zone_name,zone_name);
+    ldns_helpers_add_trailing_dot(ll_zone_current->zone_name);
     rc++;
   }
 
@@ -2845,16 +2847,18 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
       fprintf(fd_knotc_config,"conf-set \'zone[%s].dnssec-signing\' off \n",ll_zone_current->zone_name); // signing is done by the HNA
       // we only add the primary later once ACME completes
 
-      // add notifies for secondaries
+      // add config for notifies for secondaries and secondary NS rr to parent zone
       //fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,notify_list);
       ll_secondary_ns_current=ll_secondary_ns_head;
       while (ll_secondary_ns_current!=NULL) {
         fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
+	// add NS to parent for secondaries
+        fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
         ll_secondary_ns_tmp=ll_secondary_ns_current->next;
         ll_secondary_ns_current=ll_secondary_ns_tmp;
       }
 
-      // add the NS delegation to the parent
+      // add the primary NS delegation to the parent
       fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
 
       // add a soa to the new zone. knotc allows nested zone config
