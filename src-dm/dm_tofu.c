@@ -3048,7 +3048,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   ll_zone_current=ll_zone_head;
   while (ll_zone_current!=NULL) {
     printf("dm_tofu_ns_update: updating zone %s %li\n",ll_zone_current->zone_name,start_slot);
-    if ( (strcmp(new_zone_status,"created")==0) || (strcmp(new_zone_status,"assigned")==0) ) {
+    if ( (strcmp(new_zone_status,"created")==0) || (strcmp(new_zone_status,"assigned")==0) || (strcmp(new_zone_status,"delegated")==0) ) {
       dm_tofu_update_zone_status(db, ll_zone_current->zone_id, new_zone_status, start_slot);
     } else if (strcmp(new_zone_status,"deleted")==0) {
       dm_tofu_delete_zone(db, ll_zone_current->zone_id);

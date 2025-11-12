@@ -374,11 +374,11 @@ void dm_tofu_test(void) {
   CU_ASSERT(1==dm_tofu_delete_rr(db, 5));
 
 
-  // DB Test 4. Move 3 zone into assigned state
+  // DB Test 4. Move 3 zone into assigning state
   //
-  // 1,'linear.realm.piece.floor.example.com',NULL,0,'example.com',0,'creating',960),
-  // (2,'basket.delay.need.sweet.example.com',NULL,0,'example.com',0,'creating',960),
-  // (3,'jaguar.oak.guess.lord.example.com',NULL,0,'example.com',0,'creating',960)
+  // 1,'linear.realm.piece.floor.example.com',NULL,0,'example.com',0,'assigning',960),
+  // (2,'basket.delay.need.sweet.example.com',NULL,0,'example.com',0,'assigning',960),
+  // (3,'jaguar.oak.guess.lord.example.com',NULL,0,'example.com',0,'assigning',960)
   //
   // create an TXT RR ACME challenge
   char *rr_string9 = "_acme-challenge.linear.realm.piece.floor.example.com.  600     IN      TXT     Challeng1HEX";
@@ -422,15 +422,86 @@ void dm_tofu_test(void) {
   }
   CU_ASSERT(1==dm_tofu_update_zone_status(db,3,"assigning",TIME2+120));
 
-
   get_testdb("./testdata/got_dm_tofu19.sql");
   CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu19.sql","./testdata/expected_dm_tofu19.sql"));
 
-  // DBTest 5. move all 5 of them to assigned state at TIME2+180
+  // DBTest 5. move 3 of them to assigned state at TIME2+180
   dm_tofu_assigning_to_assigned(db, "example.com", TIME2+180);
   get_testdb("./testdata/got_dm_tofu05.sql");
   CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu05.sql","./testdata/expected_dm_tofu05.sql"));
   
+  // DB Test 6. Move 2 zones into delegating state
+  //
+  // 1,'linear.realm.piece.floor.example.com',NULL,0,'example.com',0,'delegating',960),
+  // (2,'basket.delay.need.sweet.example.com',NULL,0,'example.com',0,'delegating',960),
+  //
+  // create DS RR 
+  char *rr_string20 = "linear.realm.piece.floor.example.com.	600	IN	DS      26161 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string20,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"linear.realm.piece.floor.example.com.	600	IN	DS	26161 5 2 ee0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,TIME2+240);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  CU_ASSERT(1==dm_tofu_update_zone_status(db,1,"delegating",TIME2+240));
+
+  get_testdb("./testdata/got_dm_tofu20.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu20.sql","./testdata/expected_dm_tofu20.sql"));
+
+  // create DS RR 
+  char *rr_string21 = "basket.delay.need.sweet.example.com.	600	IN	DS      26162 5 2 fe0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  l_status = ldns_rr_new_frm_str(&rr,rr_string21,600,origin,&prev);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, rr);
+
+  str = ldns_rr2str_fmt(ldns_output_format_default, rr);
+  if (str) {
+    printf("RR %s", str);
+    CU_ASSERT(0==cmp_array(str,"basket.delay.need.sweet.example.com.	600	IN	DS	26162 5 2 fe0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539\n",strlen(str)));
+    LDNS_FREE(str);
+  }
+  // inserting to the DB with success
+  ret=dm_tofu_insert_rr(db,1,rr,TIME2+240);
+
+  CU_ASSERT(LDNS_RCODE_NOERROR==ret); // 1 record inserted
+
+  ldns_rr_free(rr);
+  rr=NULL;
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  CU_ASSERT(1==dm_tofu_update_zone_status(db,2,"delegating",TIME2+240));
+
+  get_testdb("./testdata/got_dm_tofu21.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu21.sql","./testdata/expected_dm_tofu21.sql"));
+
+
+  // DBTest 7. move 2 of them to delegated state at TIME2+300
+  dm_tofu_delegating_to_delegated(db, "example.com", TIME2+300);
+  get_testdb("./testdata/got_dm_tofu22.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu22.sql","./testdata/expected_dm_tofu22.sql"));
+  
+
+
+
+
+
 
 
   // create 5 zones in creating state at TIME1
