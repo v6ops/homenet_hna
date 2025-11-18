@@ -215,12 +215,12 @@ ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the templ
   ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns1);
   ptr=ldns_buffer_export2str(tmp_buf);
   status = ldns_rr_new_frm_str(&rr1, ptr, 3600, NULL, &prev1);
-  LDNS_FREE(ptr);
-  ldns_buffer_free(tmp_buf);
   if (prev1!=NULL) {
     ldns_rdf_deep_free(prev1);
     prev1=NULL;
   }
+  LDNS_FREE(ptr);
+  ldns_buffer_free(tmp_buf);
   if(status != LDNS_STATUS_OK) {
     printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
   } else {
@@ -231,12 +231,12 @@ ldns_zone * ldns_helpers_zone_template_new (char *zone_name) { // fill the templ
   ldns_buffer_printf(tmp_buf, "%s IN NS %s", zone_name, ns2);
   ptr=ldns_buffer_export2str(tmp_buf);
   status = ldns_rr_new_frm_str(&rr2, ptr, 3600, NULL, &prev2);
-  LDNS_FREE(ptr);
-  ldns_buffer_free(tmp_buf);
   if (prev2!=NULL) {
     ldns_rdf_deep_free(prev2);
     prev2=NULL;
   }
+  LDNS_FREE(ptr);
+  ldns_buffer_free(tmp_buf);
   if(status != LDNS_STATUS_OK) {
     printf("Error adding RR to zone: %s\n", ldns_get_errorstr_by_id(status));
   } else {
@@ -389,13 +389,13 @@ int ldns_helpers_notify_host(const char *zone_name,char *hostname) {
       zone_name, (unsigned)soa_version);
     /*printf("Adding soa %s\n", buf);*/
     status = ldns_rr_new_frm_str(&soa_rr, buf, 3600, NULL, &prev);
-    if(status != LDNS_STATUS_OK) {
-      printf("Error adding SOA version: %s\n",
-        ldns_get_errorstr_by_id(status));
-    }
     if (prev!=NULL) {
       ldns_rdf_deep_free(prev);
       prev=NULL;
+    }
+    if(status != LDNS_STATUS_OK) {
+      printf("Error adding SOA version: %s\n",
+        ldns_get_errorstr_by_id(status));
     }
     ldns_pkt_push_rr(notify, LDNS_SECTION_ANSWER, soa_rr);
   }
@@ -695,13 +695,13 @@ ldns_rr * ldns_helpers_soa_rr_new(const char *zone_name) {
   snprintf(buf, sizeof(buf), "%s 3600 IN SOA . . %u %u %u %u %u",
     zone_name, (unsigned)soa_version,soa_refresh,soa_retry,soa_expire,soa_minttl);
   status = ldns_rr_new_frm_str(&soa_rr, buf, 3600, NULL, &prev);
-  if(status != LDNS_STATUS_OK) {
-    printf("Error adding SOA version: %s\n",
-      ldns_get_errorstr_by_id(status));
-  }
   if (prev!=NULL) {
     ldns_rdf_deep_free(prev);
     prev=NULL;
+  }
+  if(status != LDNS_STATUS_OK) {
+    printf("Error adding SOA version: %s\n",
+      ldns_get_errorstr_by_id(status));
   }
   return soa_rr;
 }
@@ -1022,7 +1022,12 @@ ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *
           strcat(new_rr_str,"\t3600\tAAAA ");
           strcat(new_rr_str,address_buf);
           printf( "Making AAAA %s\n",new_rr_str);
-          ldns_rr_new_frm_str(&new_rr,new_rr_str, 0, NULL, NULL);
+	  ldns_rdf *prev1=NULL;
+          ldns_rr_new_frm_str(&new_rr,new_rr_str, 0, NULL, &prev1);
+	  if (prev1!=NULL) {
+            ldns_rdf_deep_free(prev1);
+            prev1=NULL;
+          }
           ldns_rr_list_push_rr(new_rr_list, new_rr);
         // check if we have IPv4 in which case make a A RR
         } else if (inet_pton(AF_INET, (const char*)address_buf, tmp_buf) == 1) {
@@ -1031,7 +1036,12 @@ ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *
           strcat(new_rr_str,"\t3600\tA ");
           strcat(new_rr_str,address_buf);
           printf( "Making A %s\n",new_rr_str);
-          ldns_rr_new_frm_str(&new_rr,new_rr_str, 0, NULL, NULL);
+	  ldns_rdf *prev2=NULL;
+          ldns_rr_new_frm_str(&new_rr,new_rr_str, 0, NULL, &prev2);
+	  if (prev2!=NULL) {
+            ldns_rdf_deep_free(prev2);
+            prev2=NULL;
+          }
           ldns_rr_list_push_rr(new_rr_list, new_rr);
         } else {
           printf("ldns_helpers_listen_string2rr_list: Skipping unknown format address string %s\n",address_buf);
@@ -1068,7 +1078,7 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
   ldns_rdf *ldns_zone_dname = NULL;
   ldns_rr_list *prerequisites=ldns_rr_list_new();
   ldns_rr *ns_rr;
-  ldns_rr_list *updates=ldns_rr_list_new();
+  ldns_rr_list *updates; //=ldns_rr_list_new();
   ldns_rr_list *additional; //=ldns_rr_list_new();
   ldns_rr_class c = LDNS_RR_CLASS_IN;
   ldns_status status=LDNS_STATUS_OK;
@@ -1090,7 +1100,12 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
 
   printf( "Making NS %s\n",new_rr_str);
 
-  ldns_rr_new_frm_str(&ns_rr,new_rr_str, 0, NULL, NULL);
+  ldns_rdf *prev=NULL; // avoid memory leak in lib
+  ldns_rr_new_frm_str(&ns_rr,new_rr_str, 0, NULL, &prev);
+  if (prev) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
   updates=ldns_rr_list_new();
   ldns_rr_list_push_rr(updates, ns_rr);
 
@@ -1100,6 +1115,17 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
   additional=ldns_helpers_listen_string2rr_list(hna_name,listen_string);
 
   update= ldns_update_pkt_new(ldns_zone_dname, c, prerequisites, updates, additional);
+  // ldns_update_pkt_new clones the rr_list so free before returning
+  if (prerequisites!=NULL) {
+    ldns_rr_list_deep_free(prerequisites);
+  }
+  if (updates!=NULL) {
+    ldns_rr_list_deep_free(updates);
+  }
+  if (additional!=NULL) {
+    ldns_rr_list_deep_free(additional);
+  }
+
   ldns_helpers_pkt_set_times(update,NULL,NULL);
   return update;
 }
@@ -1151,7 +1177,12 @@ ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
     }
     
     //printf( "Making DS %s\n",new_rr_str);
-    ldns_rr_new_frm_str(&ds_rr,new_rr_str, 0, NULL, NULL);
+    ldns_rdf *prev1=NULL;
+    ldns_rr_new_frm_str(&ds_rr,new_rr_str, 0, NULL, &prev1);
+    if (prev1!=NULL) {
+      ldns_rdf_deep_free(prev1);
+      prev1=NULL;
+    }
     ldns_rr_list_push_rr(updates, ds_rr);
     //printf( "Made DS %s\n",new_rr_str);
   } 
@@ -1176,6 +1207,16 @@ ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
   // Clear QR (Question Response) flag
   ldns_pkt_set_qr(update, false);
   ldns_helpers_pkt_set_times(update,NULL,NULL);
+  // ldns_update_pkt_new clones the rr_list so free before returning
+  if (prerequisites!=NULL) {
+    ldns_rr_list_deep_free(prerequisites);
+  }
+  if (updates!=NULL) {
+    ldns_rr_list_deep_free(updates);
+  }
+  if (additional!=NULL) {
+    ldns_rr_list_deep_free(additional);
+  }
   return update;
 }
 
@@ -1196,7 +1237,12 @@ ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *new_rr_str
 
   printf( "updating RR %s\n",new_rr_str);
 
-  ldns_rr_new_frm_str(&ns_rr,new_rr_str, 0, NULL, NULL);
+  ldns_rdf *prev1=NULL;
+  ldns_rr_new_frm_str(&ns_rr,new_rr_str, 0, NULL, &prev1);
+  if (prev1!=NULL) {
+    ldns_rdf_deep_free(prev1);
+    prev1=NULL;
+  }
   updates=ldns_rr_list_new();
   ldns_rr_list_push_rr(updates, ns_rr);
 
@@ -1217,6 +1263,16 @@ ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *new_rr_str
   // Clear QR (Question Response) flag
   ldns_pkt_set_qr(update, false);
   ldns_helpers_pkt_set_times(update,NULL,NULL);
+  // ldns_update_pkt_new clones the rr_list so free before returning
+  if (prerequisites!=NULL) {
+    ldns_rr_list_deep_free(prerequisites);
+  }
+  if (updates!=NULL) {
+    ldns_rr_list_deep_free(updates);
+  }
+  if (additional!=NULL) {
+    ldns_rr_list_deep_free(additional);
+  }
   return update;
 }
 
