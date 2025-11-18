@@ -29,6 +29,7 @@
 //#include "find_next_test.h"
 #include "ldns_helpers_test.h"
 #include "dm_tofu_test.h"
+#include "dm_worker_test.h"
 #include "do_EVP_HMACSHA256_test.h"
 
 static int init_suite1(void) { return 0; }
@@ -55,6 +56,7 @@ int main() {
  //   !CU_add_test(pSuite, "find_next", test_find_next) ||
     !CU_add_test(pSuite, "ldns_helpers", ldns_helpers_test) ||
     !CU_add_test(pSuite, "dm_tofu", dm_tofu_test) ||
+    !CU_add_test(pSuite, "dm_worker", dm_worker_test) ||
     !CU_add_test(pSuite, "do_EVP_HMACSHA256", do_EVP_HMACSHA256_test) 
   ) {
     CU_cleanup_registry();

@@ -109,6 +109,209 @@ ldns_pkt * dm_worker_query_axfr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cl
   return response_pkt;
 }
 
+// prescan an update packet as per RFC2136 section 3.4.1 plus local policy checks
+// returns an LDNS packet error code
+int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client ) {
+/*
+
+   CLASS    TYPE     RDATA    TTL  Meaning
+   ---------------------------------------------------------
+   ANY      ANY      empty         Delete all RRsets from a name
+   ANY      rrset    empty         Delete an RRset
+   NONE     rrset    rr            Delete an RR from an RRset
+   zone     rrset    rr            Add to an RRset
+
+        [rr] for rr in updates
+           if (zone_of(rr.name) != ZNAME)
+                return (NOTZONE);
+
+           if (rr.class == zclass)
+                if (rr.type & ANY|AXFR|MAILA|MAILB) // add must be specific type
+                     return (FORMERR)
+
+           elsif (rr.class == ANY)
+                if (rr.ttl != 0 || rr.rdlength != 0 // delete must have no rdata and ttl==0
+                    || rr.type & AXFR|MAILA|MAILB)  // these types cannot be deleted
+                     return (FORMERR)
+
+           elsif (rr.class == NONE)
+                if (rr.ttl != 0 || rr.type & ANY|AXFR|MAILA|MAILB) // specific RR to delete must have ttl==0
+                     return (FORMERR)
+
+           else   // rr.class!=zclass||ANY||NONE
+                return (FORMERR)
+*/
+
+  char rr_owner[ldns_helpers_max_buffer_size]="\0";
+  ldns_pkt_opcode l_opcode=0; // check this is an update packet. Otherwise we shouldn't have got here.
+  l_opcode=ldns_pkt_get_opcode(p);
+  if (l_opcode !=  LDNS_PACKET_UPDATE) {
+    printf("dm_tofu_update_prescan: unexpected opcode in update packet. %i\n",l_opcode);
+    return LDNS_RCODE_FORMERR;
+  }
+
+  // get the zone name from the question/zone section
+  char zname[LDNS_MAX_DOMAINLEN];
+  // check there is exactly 1 RR in the zone/question section
+  uint16_t l_qdcount=ldns_pkt_qdcount(p);
+  if (l_qdcount!=1) {
+    printf("dm_tofu_update_prescan: unexpected number of zones in zone/question section. %i\n",l_qdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+
+  ldns_rr_list *l_rr_question_list;
+  l_rr_question_list=ldns_pkt_question(p);
+  if (l_rr_question_list==NULL) { // if there no zone list
+    printf("dm_tofu_update_prescan: no zone list in zone/question section. %i\n",l_qdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+  uint16_t l_nscount=ldns_pkt_nscount(p);
+  if (l_nscount<1) {
+    printf("dm_tofu_update_prescan: unexpected number of rr in update/authority section. %i\n",l_nscount);
+    return LDNS_RCODE_FORMERR;
+  }
+  ldns_rr_list *l_rr_auth_list;
+  l_rr_auth_list=ldns_pkt_authority(p);
+  if (l_rr_auth_list==NULL) { // if there no update list
+    printf("dm_tofu_update_prescan: no update list in update/authority section. %i\n",l_nscount);
+    return LDNS_RCODE_FORMERR;
+  }
+  ldns_rr *l_rr_zone;
+  l_rr_zone=ldns_rr_list_rr(l_rr_question_list,0);
+  if (l_rr_zone==NULL) { // if there's no 1st element
+    printf("dm_tofu_update_prescan: no zone in question section. %i\n",l_qdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+  uint16_t l_rdcount=ldns_rr_rd_count(l_rr_zone);
+  if (l_rdcount!=0) { // if there's rdata in the soa
+    printf("dm_tofu_update_prescan: unexpected number of rdf in zone. %i\n",l_rdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+  if (ldns_rr_get_type(l_rr_zone) != LDNS_RR_TYPE_SOA ) { // if the rr isn't a SOA
+    printf("dm_tofu_update_prescan: rdf in zone is not a SOA. %i\n",l_rdcount);
+    return LDNS_RCODE_FORMERR;
+  }
+
+  ldns_buffer *buf1=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+  ldns_rdf *zrdf=ldns_rr_owner(l_rr_zone);
+  ldns_status l_status = ldns_rdf2buffer_str_dname(buf1, zrdf);
+  if (l_status!=LDNS_STATUS_OK ) {
+    return LDNS_RCODE_FORMERR;
+  }
+  char *tmp1=ldns_buffer_export2str(buf1);
+  strcpy(zname,tmp1);
+  ldns_buffer_free(buf1); // doesn't free buffer data
+  LDNS_FREE(tmp1);
+
+  ldns_rr_class zclass=ldns_rr_get_class (l_rr_zone);
+  // we only serve class IN as our own local policy decision
+  if (zclass!=LDNS_RR_CLASS_IN) {
+    printf("dm_tofu_update_prescan: don't serve this class. %i\n",zclass);
+    return LDNS_RCODE_REFUSED;
+  }
+
+  printf("zname %s zclass %i\n",zname,zclass);
+
+  // Check zname is contained in one of our parents.
+#ifdef WITH_TOFU
+  //char *my_parent=dm_tofu_get_parent(p_ssl_client->db, zname);
+  // exact matches only for now.
+  int my_parent=dm_tofu_count_parent(p_ssl_client->db, zname);
+  if (my_parent!=1) {
+    printf("dm_tofu_update_prescan: don't serve this parent. %s\n",zname);
+    return LDNS_RCODE_NOTAUTH;
+  }
+#else
+  // static comparison with hard coded parent
+  char my_root[ldns_helpers_max_buffer_size]="homenetdns.com\0"; // parent zone is hard coded when there is no db.
+  size_t len=strlen(my_root);
+  if (strncmp(my_root,zname,len) !=0) {
+    printf("dm_tofu_update_prescan: don't serve this parent. %s\n",zname);
+    return LDNS_RCODE_NOTAUTH;
+  }
+#endif // WITH_TOFU
+
+  // Step through the authority/update section
+  uint16_t i;
+  for (i=0;i<l_nscount;i++) {
+    ldns_rr *rr;
+    rr=ldns_rr_list_rr(l_rr_auth_list,i);
+    // if (zone_of(rr.name) != ZNAME)
+    //   return (NOTZONE);
+    ldns_rdf *rdf=ldns_rr_owner(rr);
+    if (!ldns_rr_owner(rr)) {
+      return LDNS_RCODE_NOTZONE;
+    }
+    // the rr and zone are not equal and rr is not a subzone of zone
+    if ( (ldns_dname_compare(rdf,zrdf)!=0) && (!ldns_dname_is_subdomain(rdf,zrdf)) ) {
+      return LDNS_RCODE_NOTZONE;
+    }
+
+    // if (rr.class == zclass)
+    //   if (rr.type & ANY|AXFR|MAILA|MAILB) // add must be specific type
+    //     return (FORMERR)
+    if (ldns_rr_get_class(rr) == zclass) {
+      if ((ldns_rr_get_type(rr)==LDNS_RR_TYPE_ANY) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) )  {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        // this rr is OK. nothing to do.
+	// return LDNS_RCODE_NOERROR;
+      }
+    } else
+    //  elsif (rr.class == ANY)
+    //    if (rr.ttl != 0 || rr.rdlength != 0 // delete must have no rdata and ttl==0
+    //        || rr.type & AXFR|MAILA|MAILB)  // these types cannot be deleted
+    //      return (FORMERR)
+    if (ldns_rr_get_class(rr) == LDNS_RR_CLASS_ANY) {
+      if ( (ldns_rr_ttl(rr) !=0) || (ldns_rr_rd_count(rr) !=0) || ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) ) ) {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        // this rr is OK. nothing to do.
+        // return LDNS_RCODE_NOERROR;
+      }
+    } else
+    //  elsif (rr.class == NONE)
+    //    if (rr.ttl != 0 || rr.type & ANY|AXFR|MAILA|MAILB) // specific RR to delete must have ttl==0
+    //      return (FORMERR)
+    if (ldns_rr_get_class(rr) == LDNS_RR_CLASS_NONE) {
+      if ( (ldns_rr_ttl(rr) !=0) || ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_ANY) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AXFR)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILA) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_MAILB) ) ) {
+        return LDNS_RCODE_FORMERR;
+      } else {
+        // this rr is OK. nothing to do.
+        // return LDNS_RCODE_NOERROR;
+      }
+    } else {
+      return LDNS_RCODE_FORMERR;
+    }
+
+
+    // local policy
+    //
+    // check certificate DN against text version of owner of the DS AAAA NS RR
+    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AAAA) ) {
+      ldns_buffer *buf2=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+      l_status = ldns_rdf2buffer_str_dname(buf2, ldns_rr_owner(rr));
+      if (l_status!=LDNS_STATUS_OK ) {
+         return LDNS_RCODE_FORMERR;
+      }
+      char *tmp2=ldns_buffer_export2str(buf2);
+      strcpy(rr_owner,tmp2);
+      ldns_buffer_free(buf2); // doesn't free buffer data
+      LDNS_FREE(tmp2);
+      printf("Checking cert matches RR owner %s\n",rr_owner);
+      if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, rr_owner) !=1) {
+        printf ("Warning cert does not match RR owner %s\n",rr_owner);
+        return LDNS_RCODE_REFUSED;
+      }
+    }
+  } // end for loop
+  return LDNS_RCODE_NOERROR;
+}
+
 // process and incoming update packet
 ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_client) // 1st arg = packet, 2nd arg=SSL client (for cert)
 {
@@ -133,6 +336,13 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
     return NULL;
   }
 
+  // perform prescan checks on the incoming update packet
+  int l_error=dm_worker_update_prescan(update_pkt, p_ssl_client);
+  if (l_error != LDNS_RCODE_NOERROR) {
+    response_pkt=ldns_helpers_pkt_error(update_pkt,l_error); // we reject this packet so don't process further
+    return response_pkt;
+  }
+/*
   // Question should contain exactly 1 RR, which is a SOA, and the owner should match one of our parent zones 
   if (ldns_rr_list_rr_count(ldns_pkt_question(update_pkt)) !=1) {
     printf("Expected 1 RR in the question\n");
@@ -145,7 +355,7 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
   } else {
     soa_owner_rdf=ldns_rr_owner(ldns_rr_list_rr(ldns_pkt_question(update_pkt),0));
     ldns_dname_2str(soa_owner,soa_owner_rdf);
-    char my_root[ldns_helpers_max_buffer_size]="homenetdns.com\0"; // TODO remove hard coding of parent zone
+    char my_root[ldns_helpers_max_buffer_size]="homenetdns.com\0"; // parent zone is hard coded when there is no db.
     size_t	len=strlen(my_root);
     if (strncmp(my_root,soa_owner,len) !=0) {
       printf("Expected owner of the SOA in the UPDATE is %s, got %s\n",my_root,soa_owner);
@@ -153,11 +363,21 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       return response_pkt;
     }
   }
+  */
 
   printf("Incoming update passed sanity checks\n");
+  soa_owner_rdf=ldns_rr_owner(ldns_rr_list_rr(ldns_pkt_question(update_pkt),0));
+  ldns_dname_2str(soa_owner,soa_owner_rdf);
 
   // check if we have DS or NS in the Authority
-  while ( (query_authority_rr=ldns_rr_list_pop_rr(ldns_pkt_authority(update_pkt))) ){
+
+  uint16_t l_nscount=0;
+  l_nscount=ldns_pkt_nscount(update_pkt);
+  // while ( (query_authority_rr=ldns_rr_list_pop_rr(ldns_pkt_authority(update_pkt))) ){
+  uint16_t i=0;
+  while (i<l_nscount) {
+    query_authority_rr=ldns_rr_list_rr(ldns_pkt_authority(update_pkt),i);
+
     sprintf(buf, "processing RR\n");
     printf("%s",buf);
 
@@ -168,16 +388,13 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       ldns_dname_2str(ns_owner,ns_owner_rdf);
       ldns_helpers_strip_trailing_dot(ns_owner);
       printf("NS RR Owner %s\n",ns_owner);
-      // Check this NS RR falls within the parent
-      if (ldns_dname_is_subdomain(ns_owner_rdf,soa_owner_rdf) == false) {
-        printf("Skipping NS RR %s as it is not a subdomain of %s\n",ns_owner,soa_owner);
-        continue;
-      }
-      // TODO check certificate DN against owner of the NS RR
+      /* already checked
+      // check certificate DN against owner of the NS RR
       printf("Checking cert matches RR owner %s\n",ns_owner);
       if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ns_owner) !=1) {
         printf ("Warning cert does not match RR owner %s\n",ns_owner);
       }
+      */
       // TODO additional checks to match the RDF of the NS RR to the owner of the A and AAAA RRs
       strcpy(listen_string,"[\0");
       while ( (rdf=ldns_rr_pop_rdf(query_authority_rr)) ) {
@@ -192,10 +409,10 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       strcat(listen_string,"]\0");
       //printf("Listen String %s\n",listen_string);
       if (strlen(listen_string)>2) {
-        printf("Saving %s %s from authority section\n",ns_owner,listen_string);
+        printf("Saving %s %s from additional section\n",ns_owner,listen_string);
         fork_make_knot_dm_config(ns_owner,listen_string);
       }
-
+      printf("Saved NS\n");
 
     // DS Update
     } else if (ldns_rr_get_type(query_authority_rr) == LDNS_RR_TYPE_DS ) {
@@ -204,11 +421,13 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       ldns_dname_2str(ds_owner,owner);
       ldns_helpers_strip_trailing_dot(ds_owner);
       printf("Owner %s\n",ds_owner);
-      // TODO check certificate DN against RR owner
+      /* already checked
+      // check certificate DN against RR owner
       printf("Checking cert matches RR owner %s\n",ds_owner);
       if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ds_owner) !=1) {
         printf ("Warning cert does not match RR owner %s\n",ds_owner);
       }
+      */
       printf("Saving DS\n");
       ldns_rr_print(stdout,query_authority_rr);
       char *rr_ptr;
@@ -217,7 +436,10 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       LDNS_FREE(rr_ptr);
       printf("Saved DS\n");
     }
+    i++;
   } // while RR
+  // we're done. return no error.
+  response_pkt=ldns_helpers_pkt_error(update_pkt,LDNS_RCODE_NOERROR);
   return response_pkt;
 }
 

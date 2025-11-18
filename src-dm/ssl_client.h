@@ -8,6 +8,10 @@
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 
+#ifdef WITH_TOFU
+#include <mysql/mysql.h>
+#endif // WITH_TOFU
+
 #define DNSOVERTLS_WAITING_LEN1 1
 #define DNSOVERTLS_WAITING_LEN2 2
 #define DNSOVERTLS_WAITING_QUERY 3
@@ -84,7 +88,10 @@ le SSL packets)*/
     //unsigned int query_len;
     size_t query_len;
 
-      char client_addr[INET6_ADDRSTRLEN]; // ipv4 is always shorter if this is used
+    char client_addr[INET6_ADDRSTRLEN]; // ipv4 is always shorter if this is used
+#ifdef WITH_TOFU
+    MYSQL *db; // db connection handle
+#endif // WITH_TOFU
 
 
 } ;

@@ -1072,7 +1072,7 @@ ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *
 
 
 // create an update packet from the zone name and the hna client config bind string
-ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_string) {
+ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *parent_name, const char *listen_string) {
   /* LDNS types */
   ldns_pkt *update;
   ldns_rdf *ldns_zone_dname = NULL;
@@ -1109,7 +1109,11 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
   updates=ldns_rr_list_new();
   ldns_rr_list_push_rr(updates, ns_rr);
 
-  ldns_helpers_parent_domain(zone_name,parent);
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    ldns_helpers_parent_domain(zone_name,parent);
+  } else {
+    strcpy(parent,parent_name);
+  }
   ldns_str2rdf_dname(&ldns_zone_dname ,parent);
 
   additional=ldns_helpers_listen_string2rr_list(hna_name,listen_string);
@@ -1133,7 +1137,7 @@ ldns_pkt * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_
 
 
 // create an update packet for the DS SET
-ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
+ldns_pkt * ldns_helpers_ds_update_new(char *zone_name, const char *parent_name) {
   /* LDNS types */
   ldns_pkt *update;
   ldns_rdf *ldns_zone_dname = NULL;
@@ -1192,7 +1196,11 @@ ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
     free(new_rr_str);
   }
 
-  ldns_helpers_parent_domain(zone_name,parent);
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    ldns_helpers_parent_domain(zone_name,parent);
+  } else {
+    strcpy(parent,parent_name);
+  }
   ldns_str2rdf_dname(&ldns_zone_dname ,parent);
 
   update= ldns_update_pkt_new(ldns_zone_dname, c, prerequisites, updates, additional);
@@ -1221,7 +1229,7 @@ ldns_pkt * ldns_helpers_ds_update_new(char *zone_name) {
 }
 
 // create an update packet from the zone name and the RR to be update (in string fomrat)
-ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *new_rr_str) {
+ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *parent_name, const char *new_rr_str) {
   /* LDNS types */
   ldns_pkt *update;
   ldns_rdf *ldns_zone_dname = NULL;
@@ -1246,7 +1254,11 @@ ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *new_rr_str
   updates=ldns_rr_list_new();
   ldns_rr_list_push_rr(updates, ns_rr);
 
-  ldns_helpers_parent_domain(zone_name,parent);
+  if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
+    ldns_helpers_parent_domain(zone_name,parent);
+  } else {
+    strcpy(parent,parent_name);
+  }
   ldns_str2rdf_dname(&ldns_zone_dname ,parent);
 
   //additional=ldns_helpers_listen_string2rr_list(hna_name,listen_string);

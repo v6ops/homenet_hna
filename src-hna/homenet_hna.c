@@ -266,7 +266,7 @@ int main(int argc, char** argv)
   /* start update ns */
   ldns_pkt *update_ns_pkt;
   BIO_puts(out,"Creating NS UPDATE\n");
-  update_ns_pkt=ldns_helpers_ns_update_new(zone,hna_listen);
+  update_ns_pkt=ldns_helpers_ns_update_new(zone,"homenetdns.com",hna_listen);
   BIO_puts(out,"Created NS UPDATE\n");
   ldns_pkt_print(stdout,update_ns_pkt);
   BIO_puts(out,"Printed NS UPDATE\n");
@@ -278,7 +278,7 @@ int main(int argc, char** argv)
   /* start update ds */
   ldns_pkt *update_ds_pkt;
   BIO_puts(out,"Creating DS UPDATE\n");
-  update_ds_pkt=ldns_helpers_ds_update_new(zone);
+  update_ds_pkt=ldns_helpers_ds_update_new(zone,"homenetdns.com");
   if (update_ds_pkt) {
     BIO_puts(out,"Created DS UPDATE\n");
     ldns_pkt_print(stdout,update_ds_pkt);

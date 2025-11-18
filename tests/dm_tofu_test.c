@@ -32,6 +32,15 @@ void dm_tofu_test(void) {
   get_testdb("./testdata/got_testdb.sql");
   CU_ASSERT(0==cmp_file("./testdata/expected_testdb.sql","./testdata/got_testdb.sql"));
 
+
+  // test dm_tofu_count_parent
+  CU_ASSERT(1==dm_tofu_count_parent(db,"example.com"));
+  CU_ASSERT(-1==dm_tofu_count_parent(db,"")); // short domains are errors
+  CU_ASSERT(1==dm_tofu_count_parent(db,"example.com.")); // trailing dots ignored
+  CU_ASSERT(0==dm_tofu_count_parent(db,"example.com2")); // non dot trailing chars significant
+  CU_ASSERT(0==dm_tofu_count_parent(db,"sub.example.com")); // sub domains not counted
+  CU_ASSERT(0==dm_tofu_count_parent(db,"xample.com")); // non exact domains not counted
+
   // TIME1 = recent time2 = very old (to check timeouts)
 #define TIME1 31708800 // 367 days in seconds
 #define TIME2 960

@@ -267,10 +267,6 @@
 #define OFFSET 15902842308
 #define DM_TOFU_PRIVATE_KEY "private key123"
 
-// crude round robin on NS names
-// not sensible except for multiple parents running in one infra
-void round_robin_ns(char *parent_name, int *ns1_id, int *ns2_id, int *ns3_id );
-
 // Convert an ascii encoded hex string to decimal
 // Each char is 4 bits
 // limited to 32 bits (8 hex chars)
@@ -382,6 +378,8 @@ int dm_tofu_select_zone_id(MYSQL *db,char *zone_name);
 // remember to free
 char *dm_tofu_get_zone(MYSQL *db, char *rr_owner);
 
+// Given a zone_name, return the count of exact  match from the parent table
+int dm_tofu_count_parent(MYSQL *db, char *zone_name);
 
 // given a zone_name, return the name of the parent. Remember to free
 char *dm_tofu_get_parent(MYSQL *db, char *zone_name);

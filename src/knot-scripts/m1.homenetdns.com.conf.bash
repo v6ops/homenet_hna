@@ -16,9 +16,9 @@ knotc conf-set zone.domain homenetdns.com
 knotc conf-set zone[homenetdns.com].dnssec-signing on
 # our file storage for this zone
 knotc conf-set zone[homenetdns.com.].file /home/knot/zones/homenetdns.com.zone
-#knotc conf-set zone[homenetdns.com].notify ns1.homenetinfra.com
+#knotc conf-set zone[homenetdns.com].notify ns1.homenetinfra.com.
 # notify our secondary
-knotc conf-set zone[homenetdns.com].notify ns2.homenetinfra.com
+knotc conf-set zone[homenetdns.com].notify ns2.homenetinfra.com.
 # allow the axfr from the secondary
 knotc conf-set zone[homenetdns.com].acl acl_homenetinfra.com
 

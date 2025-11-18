@@ -95,11 +95,6 @@ int dm_tofu_print_ll_rr(ll_rr_t *ll_rr_head) {
 
 
 
-// crude round robin on NS names
-// not sensible except for multiple parents running in one infra
-void round_robin_ns(char *parent_name, int *ns1_id, int *ns2_id, int *ns3_id ) {
-//        TODO
-}
 
 // Convert an ascii encoded hex string to decimal
 // Each char is 4 bits
@@ -1118,12 +1113,12 @@ int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time) {
     strcpy(rr_status,"deleting");
     // ignore TTL from the rr. It must be 0 and ignored anyway.
     rr_ttl=0;
-  } else if (rr_class!=LDNS_RR_CLASS_IN) { // only works for IN (Internet) Class
-    return LDNS_RCODE_FORMERR;
+  } else if (rr_class!=LDNS_RR_CLASS_IN) { // only works for IN (Internet) Class. This is local policy thus refused.
+    return LDNS_RCODE_REFUSED;
   } else {
     strcpy(rr_status,"creating");
     rr_ttl=ldns_rr_ttl(rr);
-    // ignore short TTL on adds. This is not standard, but our own limit.
+    // ignore short TTL on adds. This is not standard, but our own local policy limit.
     if (rr_ttl<600) {
       rr_ttl=600;
     }
@@ -2359,9 +2354,104 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
   return dm_tofu_cp_name(zone_name);
 }
 
+// Given a zone_name, return the count of exact  match from the parent table
+// -1 for error
+int dm_tofu_count_parent(MYSQL *db, char *zone_name) {
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+  int count;
 
-// given a zone_name, return the longest match from the parent table
-// returns parent_name or NULL on failure or no match
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (zone_name==NULL) || (strlen(zone_name)<2) ) {
+    printf("dm_tofu_count_parent: needs a zone name\n");
+    return -1;
+  }
+
+  stmt=mysql_stmt_init(db);
+  // regexp (literal dot)<parent_name with dots escaped><anchored to end of string>
+  // results sorted by length, longest first, take only the first entry
+  // first \ escape is for C string, then a second for SQL string parsing
+  // ignore trailing dots
+  char *stmt_str="SELECT COUNT(parent_name) FROM parent AS A WHERE ? REGEXP CONCAT('^',A.parent_name,'\\\\.?$') ;";
+  printf ("stmt_str :%s:\n",stmt_str);
+  printf ("zone_name :%s:\n",zone_name);
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_count_parent: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_count_parent: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_count_parent: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN infra_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&count;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read.
+  rc=0;  // row count. should always be 0 or 1
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      // printf ("dm_tofu_count_parent: No count\n");
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      // printf ("dm_tofu_count_parent: normal end \n");
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_count_parent: Error. Can't check zone name for parent_name %s %s\n",zone_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } 
+    // We have data to return
+    // printf("rc %i zone_count %i\n",rc,count);
+    rc++;
+  }
+
+  mysql_stmt_close(stmt);
+  printf("returning %i\n",count);
+  return count;
+}
+
+// Given a zone_name, return the longest match from the parent table
+// returns parent_name or NULL on failure or no match.
+// Exact matches are NOT returned.
 // remember to free
 char *dm_tofu_get_parent(MYSQL *db, char *zone_name) {
   MYSQL_STMT *stmt;
@@ -2388,6 +2478,7 @@ char *dm_tofu_get_parent(MYSQL *db, char *zone_name) {
   // regexp (literal dot)<parent_name with dots escaped><anchored to end of string>
   // results sorted by length, longest first, take only the first entry
   // first \ escape is for C string, then a second for SQL string parsing
+  // trailing dots are not ignored
   char *stmt_str="SELECT parent_name FROM parent AS A WHERE ? REGEXP concat('\\\\.',REPLACE(A.parent_name,'.','\\\\.'),'$') ORDER BY length(A.parent_name) DESC LIMIT 1;";
   //printf ("stmt_str :%s:\n",stmt_str);
 
@@ -2842,17 +2933,17 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
 
     if (strcmp(zone_status,"creating")==0) {
       // create zones and config a zone file
-      fprintf(fd_knotc_config,"conf-set \'zone[%s]\'\n",ll_zone_current->zone_name);
+      fprintf(fd_knotc_config,"conf-set zone[\'%s\']\n",ll_zone_current->zone_name);
       char knotd_home[]=KNOTD_HOME;
-      fprintf(fd_knotc_config,"conf-set \'zone[%s].file\' \'%s/zones/%s.zone\'\n",ll_zone_current->zone_name,knotd_home,ll_zone_current->zone_name);
-      fprintf(fd_knotc_config,"conf-set \'zone[%s].dnssec-signing\' off \n",ll_zone_current->zone_name); // signing is done by the HNA
+      fprintf(fd_knotc_config,"conf-set zone[\'%s\'].file \'%s/zones/%szone\'\n",ll_zone_current->zone_name,knotd_home,ll_zone_current->zone_name); // zone already has a trailing dot
+      fprintf(fd_knotc_config,"conf-set zone[\'%s\'].dnssec-signing off \n",ll_zone_current->zone_name); // signing is done by the HNA
       // we only add the primary later once ACME completes
 
       // add config for notifies for secondaries and secondary NS rr to parent zone
-      //fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,notify_list);
+      //fprintf(fd_knotc_config,"conf-set zone[\'%s\'].notify %s \n",ll_zone_current->zone_name,notify_list);
       ll_secondary_ns_current=ll_secondary_ns_head;
       while (ll_secondary_ns_current!=NULL) {
-        fprintf(fd_knotc_config,"conf-set \'zone[%s].notify\' %s \n",ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
+        fprintf(fd_knotc_config,"conf-set zone[\'%s\'].notify %s \n",ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
 	// add NS to parent for secondaries
         fprintf(fd_knotc_zone,"zone-set %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ll_secondary_ns_current->ns_name);
         ll_secondary_ns_tmp=ll_secondary_ns_current->next;
@@ -2871,7 +2962,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
 
     } else if (strcmp(zone_status,"deleting")==0) {
       // unset the zone. This also unsets any TXT SOA and other RR within the zone
-      fprintf(fd_knotc_config,"conf-unset \'zone[%s]\'\n",ll_zone_current->zone_name);
+      fprintf(fd_knotc_config,"conf-unset zone[\'%s\']\n",ll_zone_current->zone_name);
 
       // unset the NS delegation in the parent
       fprintf(fd_knotc_zone,"zone-unset %s %s 3600 NS %s\n",parent_name,ll_zone_current->zone_name,ns_name);
@@ -2949,7 +3040,7 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"deleted"); // remember rr_id for db status update after exec command file
           } else if ( (strcmp(ll_rr_current->rr_type,"NS")==0) ) { // NS has to be done first
             printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);
-            fprintf(fd_knotc_config,"conf-unset \'zone[%s].master\'\n",ll_zone_current->zone_name); // unset master
+            fprintf(fd_knotc_config,"conf-unset zone[\'%s\'].master\n",ll_zone_current->zone_name); // unset master
             push_rr_update(&ll_rr_update_head,&ll_rr_update_current,ll_rr_current->rr_id,"deleted"); // remember rr_id for db status update after exec command file
           } else if ( (strcmp(ll_rr_current->rr_type,"AAAA")==0) ) { 
             printf("dm_tofu_ns_update: deleting rr %s\n",ll_rr_current->rr_owner);

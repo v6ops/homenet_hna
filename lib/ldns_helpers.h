@@ -72,9 +72,9 @@ ldns_zone * ldns_helpers_axfr_pkt2zone(ldns_pkt *response_pkt);
 ldns_pkt  * ldns_helpers_ns_query_new(const char *zone_name) ;
 ldns_rr   * ldns_helpers_soa_rr_new(const char *zone_name) ;
 
-ldns_pkt  * ldns_helpers_ns_update_new(const char *zone_name, const char *listen_string);
-ldns_pkt  * ldns_helpers_ds_update_new(char *zone_name);
-ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *cname_target);
+ldns_pkt  * ldns_helpers_ns_update_new(const char *zone_name, const char *parent_name, const char *listen_string);
+ldns_pkt  * ldns_helpers_ds_update_new(char *zone_name, const char *parent_name);
+ldns_pkt  * ldns_helpers_rr_update(const char *zone_name, const char *parent_name, const char *cname_target);
 ldns_pkt  * ldns_helpers_ptr_query(const char* zone_name);
 
 ldns_rr_list * ldns_helpers_listen_string2rr_list(const char *name, const char *listen_string);
