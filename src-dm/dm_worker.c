@@ -302,10 +302,14 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
       strcpy(rr_owner,tmp2);
       ldns_buffer_free(buf2); // doesn't free buffer data
       LDNS_FREE(tmp2);
-      printf("Checking cert matches RR owner %s\n",rr_owner);
-      if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, rr_owner) !=1) {
-        printf ("Warning cert does not match RR owner %s\n",rr_owner);
-        return LDNS_RCODE_REFUSED;
+      if (p_ssl_client->ssl==NULL) {
+        printf("WARNING: no SSL connection. Not Checking cert matches RR owner %s\n",rr_owner);
+      } else {
+        printf("Checking cert matches RR owner %s\n",rr_owner);
+        if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, rr_owner) !=1) {
+          printf ("Warning cert does not match RR owner %s\n",rr_owner);
+          return LDNS_RCODE_REFUSED;
+        }
       }
     }
   } // end for loop

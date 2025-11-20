@@ -8,6 +8,42 @@
 
 #include <CUnit/CUnit.h>
 
+ldns_pkt * create_update_pkt(const char *parent_name, ldns_rr_list *updates, ldns_rr_list *additional) {
+  ldns_rr_list *prerequisites=ldns_rr_list_new();
+  ldns_rdf *ldns_zone_dname = NULL;
+  ldns_str2rdf_dname(&ldns_zone_dname ,parent_name);
+  ldns_pkt *update= ldns_update_pkt_new(ldns_zone_dname, LDNS_RR_CLASS_IN, prerequisites, updates, additional);
+
+  if (additional == NULL) {
+    additional=ldns_rr_list_new();
+  }
+  // set QD to one question (the zone to update)
+  ldns_pkt_set_qdcount(update,1);
+  // set NS to one update (the RR to update)
+  ldns_pkt_set_nscount(update,1);
+  // Set random ID for the query
+  ldns_pkt_set_random_id(update);
+  // Clear RD (Recursion Desired) flag
+  ldns_pkt_set_rd(update, false);
+  // Clear QR (Question Response) flag
+  ldns_pkt_set_qr(update, false);
+  // ldns_helpers_pkt_set_times(update,NULL,NULL);
+  update->timestamp.tv_sec = 1763551210; // hard coded for testing to ease compare
+  update->timestamp.tv_usec = 0;
+  ldns_pkt_set_id(update, 0x1); // hard coded for testing to ease compare
+  // ldns_update_pkt_new clones the rr_list so free before returning
+  if (prerequisites!=NULL) {
+    ldns_rr_list_deep_free(prerequisites);
+  }
+  if (updates!=NULL) {
+    ldns_rr_list_deep_free(updates);
+  }
+  if (additional!=NULL) {
+    ldns_rr_list_deep_free(additional);
+  }
+  return update;
+}
+
 void dm_worker_test(void) {
 
   MYSQL *db;
@@ -34,9 +70,12 @@ void dm_worker_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/key.pem","./testdata/key.pem"));
   CU_ASSERT(0!=cmp_file("./testdata/key.pem","./testdata/fullchain.pem"));
   get_testdb("./testdata/got_testdb.sql");
-  CU_ASSERT(0==cmp_file("./testdata/expected_testdb.sql","./testdata/expected_testdb.sql"));
+  CU_ASSERT(0==cmp_file("./testdata/got_testdb.sql","./testdata/expected_testdb.sql"));
 
-  ldns_pkt *input_pkt;
+  ldns_pkt *input_pkt_ds;
+  ldns_pkt *input_pkt_ns;
+  ldns_pkt *input_pkt_txt;
+  ldns_pkt *input_pkt_aaaa;
   ldns_pkt *output_pkt;
 
   // spoof test ssl object
@@ -47,14 +86,106 @@ void dm_worker_test(void) {
   }
   memset(p_ssl_client, 0, sizeof(*p_ssl_client));
   p_ssl_client->db=db;
- 
-  input_pkt=ldns_helpers_ns_update_new("linear.realm.piece.floor.example.com","example.com","");
-  ldns_pkt_print(stdout,input_pkt);
-  l_status=dm_worker_update_prescan(input_pkt,p_ssl_client);
+  p_ssl_client->ssl=NULL;
+
+  // DS 
+  /*
+  input_pkt_ds=ldns_helpers_ds_update_new("linear.realm.piece.floor.example.com","example.com","");
+  ldns_pkt_print(stdout,input_pkt_ds);
+  l_status=dm_worker_update_prescan(input_pkt_ds,p_ssl_client);
   printf("l_status: %i\n",l_status);
   CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
-  ldns_helpers_pkt_free(input_pkt);
+  ldns_helpers_pkt_free(input_pkt_ds);
+  */
 
+  // create an TXT PKT
+  printf("start TXT\n");
+  char *rr_string_txt = "www.example.com.  600     IN	TXT	\"Welcome to the example domain!\"";
+  ldns_rr *txt_rr=NULL;
+  ldns_rr_list *txt_rr_list=ldns_rr_list_new();
+  l_status = ldns_rr_new_frm_str(&txt_rr,rr_string_txt,600,origin,&prev);
+  if (prev!=NULL) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  ldns_rr_set_push_rr(txt_rr_list,txt_rr);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, txt_rr);
+  input_pkt_txt=create_update_pkt("example.com.",txt_rr_list,NULL);
+  // test prescan
+  FILE *fptr_txt=fopen("./testdata/got_dm_worker_pkt_txt.txt","w");
+  CU_ASSERT(NULL!=fptr_txt);
+  ldns_pkt_print(fptr_txt,input_pkt_txt);
+  fclose(fptr_txt);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_txt.txt","./testdata/expected_dm_worker_pkt_txt.txt"));
+  l_status=dm_worker_update_prescan(input_pkt_txt,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
+  ldns_helpers_pkt_free(input_pkt_txt);
+
+  // create an DS PKT
+  printf("start DS\n");
+  char *rr_string_ds = "www.example.com.  600     IN      DS      26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  ldns_rr *ds_rr=NULL;
+  ldns_rr_list *ds_rr_list=ldns_rr_list_new();
+  l_status = ldns_rr_new_frm_str(&ds_rr,rr_string_ds,600,origin,&prev);
+  if (prev!=NULL) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  ldns_rr_set_push_rr(ds_rr_list,ds_rr);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, ds_rr);
+  input_pkt_ds=create_update_pkt("example.com.",ds_rr_list,NULL);
+  // test prescan
+  FILE *fptr_ds=fopen("./testdata/got_dm_worker_pkt_ds.txt","w");
+  CU_ASSERT(NULL!=fptr_ds);
+  ldns_pkt_print(fptr_ds,input_pkt_ds);
+  fclose(fptr_ds);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_ds.txt","./testdata/expected_dm_worker_pkt_ds.txt"));
+  l_status=dm_worker_update_prescan(input_pkt_ds,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
+  ldns_helpers_pkt_free(input_pkt_ds);
+
+  // NS 
+  input_pkt_ns=ldns_helpers_ns_update_new("linear.realm.piece.floor.example.com","example.com","");
+  printf("start NS\n");
+  ldns_pkt_print(stdout,input_pkt_ns);
+  l_status=dm_worker_update_prescan(input_pkt_ns,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
+  ldns_helpers_pkt_free(input_pkt_ns);
+
+  // create an AAAA PKT. Generally AAAA would be associated with an NS, but could be usefule for renumbering events
+  printf("start AAAA\n");
+  char *rr_string_aaaa = "www.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
+  ldns_rr *aaaa_rr=NULL;
+  ldns_rr_list *aaaa_rr_list=ldns_rr_list_new();
+  l_status = ldns_rr_new_frm_str(&aaaa_rr,rr_string_aaaa,600,origin,&prev);
+  if (prev!=NULL) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  ldns_rr_set_push_rr(aaaa_rr_list,aaaa_rr);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, aaaa_rr);
+  input_pkt_aaaa=create_update_pkt("example.com.",aaaa_rr_list,NULL);
+  // test prescan
+  FILE *fptr_aaaa=fopen("./testdata/got_dm_worker_pkt_aaaa.txt","w");
+  CU_ASSERT(NULL!=fptr_aaaa);
+  ldns_pkt_print(fptr_aaaa,input_pkt_aaaa);
+  fclose(fptr_aaaa);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_aaaa.txt","./testdata/expected_dm_worker_pkt_aaaa.txt"));
+  l_status=dm_worker_update_prescan(input_pkt_aaaa,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
+  ldns_helpers_pkt_free(input_pkt_aaaa);
+
+  
+  
+  
+  
   goto the_end; // skip further tests
   
   // create an AAAA RR

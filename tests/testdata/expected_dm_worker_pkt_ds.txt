@@ -1,0 +1,15 @@
+;; ->>HEADER<<- opcode: UPDATE, rcode: NOERROR, id: 1
+;; flags: ; QUERY: 1, ANSWER: 0, AUTHORITY: 1, ADDITIONAL: 0 
+;; QUESTION SECTION:
+;; example.com.	IN	SOA
+
+;; ANSWER SECTION:
+
+;; AUTHORITY SECTION:
+www.example.com.	600	IN	DS	26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539
+
+;; ADDITIONAL SECTION:
+
+;; Query time: 0 msec
+;; WHEN: Wed Nov 19 11:20:10 2025
+;; MSG SIZE  rcvd: 0
