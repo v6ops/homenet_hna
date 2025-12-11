@@ -571,9 +571,129 @@ void dm_tofu_test(void) {
   
 
 
+  // ADD more data to the test db for further tests. not needed for these tests yet.
+  printf("Reset test db\n");
+  set_testdb("./testdata/add_to_testdb.sql");
+  get_testdb("./testdata/got_dm_tofu26.sql");
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu26.sql","./testdata/expected_dm_tofu26.sql"));
+
+  // infra is like this after previous tests
+  //(1,'ns1.homenetinfra.com','dm1','85.215.139.146','2a01:239:24f:f800::1','created',0,'ns'),
+  //(2,'ns2.homenetinfra.com','dm2','212.132.88.195','2a01:239:3c7:c100::1 ','created',0,'ns'),
+  //(3,'dm1.homenetinfra.com','dm2','85.215.139.146','2a01:239:24f:f800::1','created',0,'dm'),
+  //(4,'dm2.homenetinfra.com','dm1','212.132.88.195','2a01:239:3c7:c100::1','crea ted',0,'dm'),
+  //(5,'hna-linear.realm.piece.floor.example.com',NULL,NULL,'2001:1::1','creating',1020,'hna'),
+  //(6,'hna-basket.delay.need.sweet.example.com',NULL,NULL,'2001:2::1','creating',1020,'hna'),
+  //(7,'hna-jaguar.oak.guess.lord.example.com',NULL,NULL,'2001:3::1','creating',1020,'hna')
+
+  // set up a minimal test ssl client struct
+  struct ssl_client test_ssl;
+  struct ssl_client *p_ssl_client=&test_ssl;
+  p_ssl_client->db=db;
 
 
+  // check matching and ip
+  char *zone_name=NULL;
+  char *reply=NULL;
+  
+  zone_name=dm_tofu_get_zone(p_ssl_client->db, "test-txt.linear.realm.piece.floor.example.com");
+  if (zone_name!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name,"linear.realm.piece.floor.example.com")));
+    reply=dm_tofu_select_zone_ip(db,zone_name);
+    if (reply!=NULL) {
+      CU_ASSERT(0==(strcmp(reply,"2001:1::1")));
+      free (reply);
+    } else {
+      CU_ASSERT(0==1); // test failed
+    }
+    free(zone_name);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
 
+  zone_name=dm_tofu_get_zone(p_ssl_client->db, "test-txt.basket.delay.need.sweet.example.com");
+  if (zone_name!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name,"basket.delay.need.sweet.example.com")));
+    reply=dm_tofu_select_zone_ip(db,zone_name);
+    if (reply!=NULL) {
+      CU_ASSERT(0==(strcmp(reply,"2001:2::1")));
+      free (reply);
+    } else {
+      CU_ASSERT(0==1); // test failed
+    }
+    free(zone_name);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_name=dm_tofu_get_zone(p_ssl_client->db, "xxx.yyy.basket.delay.need.sweet.example.com");
+  if (zone_name!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name,"basket.delay.need.sweet.example.com")));
+    reply=dm_tofu_select_zone_ip(db,zone_name);
+    if (reply!=NULL) {
+      CU_ASSERT(0==(strcmp(reply,"2001:2::1")));
+      free (reply);
+    } else {
+      CU_ASSERT(0==1); // test failed
+    }
+    free(zone_name);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_name=dm_tofu_get_zone(p_ssl_client->db, "xxx.yyy.fabric.shine.flip.any.example.com");
+  if (zone_name!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name,"fabric.shine.flip.any.example.com")));
+    reply=dm_tofu_select_zone_ip(db,zone_name);
+    if (reply!=NULL) {
+      CU_ASSERT(0==(strcmp(reply,""))); // zone found but should have not found an ip.
+      free (reply);
+    } else {
+      CU_ASSERT(1==1); // test succeeded. zone exists but no hna or ip so return NULL.
+    }
+    free(zone_name);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_name=dm_tofu_get_zone(p_ssl_client->db, "garbage");
+  if (zone_name!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name,"garbage")));
+    free(zone_name);
+  } else {
+    CU_ASSERT(1==1); // test succeeded. no zone
+  }
+
+  // valid txt update
+  char str25[]="2001:1::1";
+  strcpy(p_ssl_client->client_addr,str25);
+  int check=dm_tofu_check_txt_tofu("_acme_challenge.linear.realm.piece.floor.example.com", p_ssl_client) ;
+  CU_ASSERT(0==check);
+
+
+  char str26[]="2001:2::1";
+  strcpy(p_ssl_client->client_addr,str26);
+  // invalid txt update. ip mismatch with name
+  check=dm_tofu_check_txt_tofu("_acme_challenge.linear.realm.piece.floor.example.com", p_ssl_client) ;
+  CU_ASSERT(-1==check);
+
+  char str27[]="2001:1::1";
+  strcpy(p_ssl_client->client_addr,str27);
+  // invalid txt update. no zone
+  check=dm_tofu_check_txt_tofu("_acme_challenge.dog.cat.piece.floor.example.com", p_ssl_client) ;
+  CU_ASSERT(-1==check);
+
+  char str28[]="";
+  strcpy(p_ssl_client->client_addr,str28);
+  // invalid txt update. no ip
+  check=dm_tofu_check_txt_tofu("_acme_challenge.linear.realm.piece.floor.example.com", p_ssl_client) ;
+  CU_ASSERT(-1==check);
+
+  char str29[]="2001:3::1";
+  strcpy(p_ssl_client->client_addr,str29);
+  // valid txt update different domain
+  check=dm_tofu_check_txt_tofu("_acme_challenge.jaguar.oak.guess.lord.example.com", p_ssl_client) ;
+  CU_ASSERT(0==check);
 
 
 

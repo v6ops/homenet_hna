@@ -8,5 +8,6 @@
 # run after homenetinfra zone has been set up
 #
 knotc zone-begin homenetinfra.com
-knotc zone-set homenetinfra.com "acme.homenetinfra.com." 3600 NS dm1.homenetinfra.com.
+# no longer needed
+# knotc zone-set homenetinfra.com "acme.homenetinfra.com." 3600 NS dm1.homenetinfra.com.
 knotc zone-commit homenetinfra.com

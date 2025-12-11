@@ -9,6 +9,8 @@
 #
 # run every preprovision time slot on the PRIMARY NS
 #
+# no longer needed
+exit 0
 
 # read 1024 words from file
 # feel fee to change the language

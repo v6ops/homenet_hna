@@ -3435,6 +3435,128 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
 //        TODO
 }
 
+
+char *dm_tofu_select_zone_ip(MYSQL *db, char *zone_name) {
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(MYSQL_BIND));
+  size_t len1;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+
+  int status;
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+  int rc=0;
+
+  char ipv6[INET6_ADDRSTRLEN]="";
+
+  // select the ipv6 address from the db (if there is one)
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.ipv6 FROM infra AS A, zone AS B  WHERE ( (B.hna = A.infra_id) AND (B.zone_name=?) ) LIMIT 1;"; 
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_zone_ip: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  // zone_name
+  memset(bind, 0, sizeof(bind));
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind)) {
+    printf("dm_tofu_select_zone_ip: bind failed %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt)) {
+    printf ("dm_tofu_select_zone_ip: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* STRING COLUMN ipv6 */
+  bindout[0].buffer_type= MYSQL_TYPE_STRING;
+  bindout[0].buffer= (char *)&ipv6;
+  bindout[0].buffer_length= MYSQL_STRLEN;
+  bindout[0].is_null= &is_null[1];
+  bindout[0].length= &length[1];
+  bindout[0].error= &error[1];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read. For this query there is only 0 or 1.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == 1 ) {
+      printf ("dm_tofu_select_zone_ip Error. Can't select zone_name %s\n",mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } else if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_zone_ip: Info. Can't find a zone_name.\n");
+      mysql_stmt_close(stmt);
+      return NULL;
+    } else if (status == MYSQL_NO_DATA) {
+      break; // last line. normal end of read
+    }
+    rc++;
+    printf("rc %i len %i zone_name %s ipv6 %s\n",rc,(int)length[0],zone_name,ipv6);
+  }
+  mysql_stmt_close(stmt);
+  if ( (ipv6 ==NULL) || (strlen(ipv6)<2) ) {
+    return NULL;
+  }
+  return dm_tofu_cp_name(ipv6);
+}
+
+
+// Check the trust on first use before entering a TXT RR into the parent
+// checks the lock on source IP address of the TXT update compared to the offer query
+// 0 for OK -1 for fail
+int dm_tofu_check_txt_tofu(char *acme_challenge, struct ssl_client *p_ssl_client) { // 1st arg the TXT challenge RR owner. 2nd = SSL client (for IP)
+  int result=-1;
+  char *ipv6_client=p_ssl_client->client_addr;
+  char *zone_name=dm_tofu_get_zone(p_ssl_client->db, acme_challenge); // find the zone associated with this RR
+  char *ipv6_db=NULL;
+
+  if ( (zone_name==NULL) || (strlen(zone_name)<2) ) {
+    return -1; // no matching zone
+  }
+
+  if (zone_name!=NULL) {
+    // check the db for a hna ipv6 for this zone
+    ipv6_db=dm_tofu_select_zone_ip(p_ssl_client->db,zone_name);
+    free(zone_name);
+    zone_name=NULL;
+  }
+
+  if (ipv6_db!=NULL) {
+    int cmp=strcmp(ipv6_db,ipv6_client); // ipv6 in the db should match the ipv6 of the client
+    if (cmp!=0) {
+      result=-1;
+    } else {
+      result=0;
+    }
+    free(ipv6_db);
+    ipv6_db=NULL;
+  }
+
+  return result;
+}
+
 // Background job threads for TOFU
 
 // function called from server create file for knotc commands

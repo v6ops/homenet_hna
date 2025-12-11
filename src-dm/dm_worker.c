@@ -312,6 +312,17 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
         }
       }
     }
+#ifdef WITH_TOFU
+    // we also accept TXT without a cert
+    else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
+      // no cert checks on TXT but should check source IP of the update
+    }
+#endif // end WITH_TOFU
+    else { // we don't know what to do with this RR
+      printf ("Warning unknown RR TYPE in update: %i.\n",ldns_rr_get_type(rr));
+      return LDNS_RCODE_REFUSED;
+    }
+  
   } // end for loop
   return LDNS_RCODE_NOERROR;
 }
@@ -399,7 +410,7 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
         printf ("Warning cert does not match RR owner %s\n",ns_owner);
       }
       */
-      // TODO additional checks to match the RDF of the NS RR to the owner of the A and AAAA RRs
+      // additional checks to match the RDF of the NS RR to the owner of the A and AAAA RRs is done in ldns_helpers_rr_list2listen_string
       strcpy(listen_string,"[\0");
       while ( (rdf=ldns_rr_pop_rdf(query_authority_rr)) ) {
         char *ptr;

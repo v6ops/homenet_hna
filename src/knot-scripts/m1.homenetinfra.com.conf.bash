@@ -41,13 +41,14 @@ knotc conf-set template[default].zonefile-load difference
 knotc conf-set template[default].serial-policy unixtime
 knotc conf-commit
 
-knotc conf-begin
+
 # create the homenetinfra.net domain
-knotc conf-set zone.domain homenetinfra.com
+knotc conf-begin
+knotc -b conf-set 'zone[homenetinfra.com]'
 # turn on automatic signing
 knotc conf-set zone[homenetinfra.com].dnssec-signing on
 # our file storage for this zone
-knotc conf-set zone[homenetinfra.com.].file /home/knot/zones/homenetinfra.com.zone
+knotc conf-set zone[homenetinfra.com].file /home/knot/zones/homenetinfra.com.zone
 # notify our secondary
 knotc conf-set zone[homenetinfra.com].notify ns2.homenetinfra.com.
 # set up our primary
@@ -57,9 +58,10 @@ knotc conf-set zone[homenetinfra.com].acl acl_homenetinfra.com
 
 knotc conf-commit
 
+knotc -bf zone-purge homenetinfra.com
 # set your own infra IPs here
 knotc zone-begin homenetinfra.com
-knotc zone-set homenetinfra.com homenetinfra.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2025102804 3600 1800 604800 600
+knotc zone-set homenetinfra.com homenetinfra.com. 600 SOA ns1.homenetinfra.com. hostmaster.globis.net. 2025112603 3600 1800 604800 600
 knotc zone-set homenetinfra.com homenetinfra.com. 600 NS ns1.homenetinfra.com.
 knotc zone-set homenetinfra.com homenetinfra.com. 600 NS ns2.homenetinfra.com.
 knotc zone-set homenetinfra.com homenetinfra.com. 600 CAA 128 issue "letsencrypt.org"

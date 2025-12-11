@@ -2,7 +2,7 @@
 knotc conf-begin
 knotc conf-set 'zone[example.com]'
 knotc conf-set 'zone[example.com].file' '/home/knot/zones/example.com'
-knotc conf-set zone[example.com].notify ns2.homenetinfra.com
+knotc conf-set zone[example.com].notify ns2.homenetinfra.com.
 knotc conf-set zone[example.com].acl acl_homenetinfra.com
 knotc conf-set zone[example.com].dnssec-signing on
 knotc conf-commit

@@ -60,7 +60,7 @@
 *  not exist ----> creating  zone names are in DB                              * 
 *    |                 |                                                       *
 *    |              created  zones are created as primary asynch in a batch.   *
-*    |             /   |     NS and AAAA glue in parent. No DNSSEC on child.   *
+*    |             /   |                                                       *
 *    |            /    |                                                       *
 *    | batch   T1/     |     solicit PTR query received and PTR answer sent    *
 *    |          /      v                                                       *
@@ -76,20 +76,23 @@
 *    ^         |       |     potentially batch                                 *
 *    |        TXT      |                                                       *
 *    |    T3      \    v                                                       *
-*    | <----<----- assigned  Glue TXT RR inserted in child zone for ACME       *
-*    ^                 |                                                       *
-*    |    RFC2136      |     client & CA complete cert asynch via ACME DNS     *
-*    |    2.5.2        |                                                       *
-*    |    delete NS    |     DS add received using cert as per RFC2136 2.5.1   *
-*    |    RR Set ?     |     DM generated TXT RR deleted or overwritten        *
+*    | <----<----- assigned  Glue TXT RR inserted in parent zone for ACME      *
+*    ^                 |     TXT RR signed by parent ZSK                       *
+*    |                 |                                                       *
+*    |                 |     client & CA complete cert asynch via ACME DNS     *
+*    |    RFC9526      |                                                       *
+*    |    6.5.4        |     Valid update received by DM using cert            *
+*    |    delete NS    |                                                       *
+*    |    RR Set ?     |                                                       *
 *    |      y   n      v                                                       *
 *    |<-----< ? >-delegating DS or NS + Glue AAAA RR noted for add or delete   *
-*    ^        ^        |     as per RFC 2136 2.5.1 or 2.5.4                    *
+*    ^        ^        |     as per RFC 2136                                   *
 *    |        |        |                                                       *
 *    |       NS or     |     batch to add DS to parent and resign or           *
-*    |     DS Update   |     primary NS updated in delegated zone              *
-*    |           \     |                                                       *
-*    |            \    v                                                       *
+*    |     DS Update   |     primary NS updated in delegated zone.             *
+*    |           \     |     Complete delegation at the parent.                *
+*    |            \    |     NS & AAAA glue added to parent 1st time through.  *
+*    |             \   v                                                       *
 *    L------<----- delegated fully delegated zone with AXFR & glue in place    *
 *          T4                                                                  *
 *                                                                              *
@@ -98,9 +101,11 @@
 *                   |    |                                                     *
 *                    <---                                                      *
 *                                                                              *
-* TXT RR installed via the DM only makes sense before delegating.              *
-* Once delegated, any content would be over-written by AXFR from HNA primary.  *
-* Future TXT RR for ACME cert renewal go in HNA (and then published by AXFR)   *
+* TXT RR installed via the DM only makes sense before full delegation.         *
+* TXT RR SHOULD be explicitly deleted by the HNA once no longer needed.        *
+* TXT RR in the parent zone MAY be timed out by the DM.                        *
+* Once delegated, any content in the parent zone other than glue is ignored.   *
+* TXT RR for ACME cert renewal are installed in the delegated zone (HNA +AXFR) *
 *                                                                              *
 *******************************************************************************/
 
@@ -501,6 +506,13 @@ void push_rr_update(ll_rr_update_t **ll_rr_update_head, ll_rr_update_t **ll_rr_u
 // function called from dm_worker to process and inbound query PTR packet
 ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_client); // 1st arg = packet, 2nd arg=SSL client (for cert)
 
+// given a zone name, return the ipv6 address of the hna (learned from the offer query)
+char *dm_tofu_select_zone_ip(MYSQL *db, char * zone_name) ;
+// Check the trust on first use before entering a TXT RR into the parent
+// checks the lock on source IP address of the TXT update
+// 0 for OK -1 for fail
+int dm_tofu_check_txt_tofu(char *acme_challenge, struct ssl_client *p_ssl_client); // 1st arg the TXT challenge RR owner. 2ns = SSL client (for IP)
+
 // Background job threads for TOFU
 
 // args storage to pass to thread
@@ -525,5 +537,6 @@ dm_tofu_thread_t *dm_tofu_bg_start(int thread_num);
 void *dm_tofu_bg_exec(void *arguments); // a single storage element with vars for this thread
 // function called from server to stop backround thread for regular tasks
 int dm_tofu_bg_stop(dm_tofu_thread_t **my_thread); // pointer to a threads
+
 
 #endif // DM_TOFU_INCLUDED
