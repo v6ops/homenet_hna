@@ -301,7 +301,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
       char *tmp2=ldns_buffer_export2str(buf2);
       strcpy(rr_owner,tmp2);
       ldns_buffer_free(buf2); // doesn't free buffer data
-      LDNS_FREE(tmp2);
+      LDNS_FREE(tmp2); // free the buffer data
       if (p_ssl_client->ssl==NULL) {
         printf("WARNING: no SSL connection. Not Checking cert matches RR owner %s\n",rr_owner);
       } else {
@@ -315,7 +315,21 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
 #ifdef WITH_TOFU
     // we also accept TXT without a cert
     else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
-      // no cert checks on TXT but should check source IP of the update
+      // get the owner and check against IP of this session in the infra table (which was updated by the offer request
+      ldns_buffer *buf3=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+      l_status = ldns_rdf2buffer_str_dname(buf3, ldns_rr_owner(rr));
+      if (l_status!=LDNS_STATUS_OK ) {
+         return LDNS_RCODE_FORMERR;
+      }
+      char *tmp3=ldns_buffer_export2str(buf3);
+      strcpy(rr_owner,tmp3);
+      ldns_buffer_free(buf3); // doesn't free buffer data
+      LDNS_FREE(tmp3); // free the buffer data
+      printf("Checking client ip matches previous ip of offer request %s\n",rr_owner);
+      if (dm_tofu_check_txt_tofu(rr_owner, p_ssl_client) !=0) {
+          printf ("Warning ip does not match ip of offer request %s\n",rr_owner);
+          return LDNS_RCODE_REFUSED;
+      }
     }
 #endif // end WITH_TOFU
     else { // we don't know what to do with this RR

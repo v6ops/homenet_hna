@@ -402,7 +402,7 @@ typedef struct ll_secondary_ns {
 // given a parent_name, get a linked list of the secondary NS
 ll_secondary_ns_t *dm_tofu_get_secondary_ns(MYSQL *db, char *parent_name) ;
 
-// linked list needed for dm_tofu_creating_to_created and dm_tofu_select_zone_status
+// linked list needed for dm_tofu_creating_to_created and dm_tofu_select_zone_with_status
 typedef struct ll_zone {
   char zone_name[MYSQL_STRLEN+1];
   int zone_id;
@@ -416,9 +416,13 @@ int dm_tofu_print_ll_parent(ll_parent_t *ll_parent_head);
 // count zones under this parent_name with this zone_status
 int dm_tofu_count_zone_status(MYSQL *db, char *parent_name, char *zone_status);
 
+// select zone status given zone name
+// returns NULL on no match or error
+char *dm_tofu_select_zone_status(MYSQL *db, char *zone_name);
+
 // // create a linked list of zones under this parent_name with this zone_status
 // returns rc or -1 on failure
-int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
+int dm_tofu_select_zone_with_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head);
 
 
 // Batch job to move zones from zone_status to new zone_status e.g. creating to created

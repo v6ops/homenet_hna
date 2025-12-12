@@ -116,11 +116,11 @@ exit(0);
   exit(0);
 
   ll_zone_t *ll_zone_head=NULL;
-  dm_tofu_select_zone_status(db,"homenetdns.com","creating",&ll_zone_head);
+  dm_tofu_select_zone_with_status(db,"homenetdns.com","creating",&ll_zone_head);
   printf("hello\n");
   dm_tofu_print_ll_zone(ll_zone_head);
   ll_zone_head=NULL;
-  dm_tofu_select_zone_status(db,"homenetdns.com","offered",&ll_zone_head);
+  dm_tofu_select_zone_with_status(db,"homenetdns.com","offered",&ll_zone_head);
   dm_tofu_print_ll_zone(ll_zone_head);
 
   ll_secondary_ns_t *ll_ns_head= dm_tofu_get_secondary_ns(db, "homenetdns.com") ;

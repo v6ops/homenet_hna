@@ -2645,10 +2645,98 @@ int dm_tofu_count_zone_status(MYSQL *db, char *parent_name, char *zone_status) {
   return count;
 }
 
+// select zone status given zone name
+// returns NULL on no match or error
+char *dm_tofu_select_zone_status(MYSQL *db, char *zone_name) {
+
+  char zone_status[MYSQL_STRLEN]={'\0'};
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[1];
+  memset(bind, 0, sizeof(bind));
+  size_t len1;
+  int rc=0;  // row count
+
+  int status;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+
+  if ( (zone_name==NULL) || (strlen(zone_name)<2) ) {
+    printf("dm_tofu_select_zone_status: needs a zone name\n");
+    return NULL;
+  }
+
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.zone_status FROM zone AS A WHERE A.zone_name=?; ";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(zone_name);
+  bind[0].length= &len1;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_zone_status: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_zone_status: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  /* STRING COLUMN zone_status */
+  bindout[0].buffer_type= MYSQL_TYPE_STRING;
+  bindout[0].buffer= (char *)&zone_status;
+  bindout[0].buffer_length= MYSQL_STRLEN;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return NULL;
+  }
+
+  // While rows to read.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("dm_tofu_select_zone_status: normal. No data\n");
+      break; 
+    } else if (status == MYSQL_NO_DATA && rc>0) {
+      break; // Last line. Normal end of read after match.
+    } else if (status == 1 ) {
+      printf ("dm_tofu_select_zone_status: Error. Can't select zone status for zone_name %s %s\n",zone_name,mysql_error(db));
+      mysql_stmt_close(stmt);
+      return NULL;
+    } 
+    // We have data to return in a single element. Copied to result after all read.
+    rc++;
+  }
+  mysql_stmt_close(stmt);
+  if ( (strlen(zone_status)<2) ) { // zone status is an enum and is always quite long
+    return NULL;
+  }
+  return dm_tofu_cp_name(zone_status);
+}
 
 // create a linked list of zones under this parent with this zone_status
 // returns rc or -1 on failure
-int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head) {
+int dm_tofu_select_zone_with_status(MYSQL *db, char *parent_name, char *zone_status, ll_zone_t **ll_zone_head) {
 
   ll_zone_t *ll_zone_tmp=NULL;
   ll_zone_t *ll_zone_current=NULL;
@@ -2669,7 +2757,7 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   bool error[2];
 
   if ( (parent_name==NULL) || (strlen(parent_name)<2) ) {
-    printf("dm_tofu_select_zone_status: needs a parent name\n");
+    printf("dm_tofu_select_zone_with_status: needs a parent name\n");
     return -1;
   }
 
@@ -2677,7 +2765,7 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   char *stmt_str="SELECT A.zone_id, A.zone_name FROM zone AS A WHERE A.parent_name=? AND A.zone_status=?; ";
 
   if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
-    printf ("dm_tofu_select_zone_status: prepare failed. %s\n",mysql_stmt_error(stmt));
+    printf ("dm_tofu_select_zone_with_status: prepare failed. %s\n",mysql_stmt_error(stmt));
     mysql_stmt_close(stmt);
     return -1;
   }
@@ -2697,12 +2785,12 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   bind[1].length= &len2;
 
   if (mysql_stmt_bind_param(stmt, bind) ) {
-    printf ("dm_tofu_select_zone_status: bind failed. %s\n",mysql_error(db));
+    printf ("dm_tofu_select_zone_with_status: bind failed. %s\n",mysql_error(db));
     mysql_stmt_close(stmt);
     return -1;
   }
   if (mysql_stmt_execute(stmt) ) {
-    printf ("dm_tofu_select_zone_status: exec failed. %s\n",mysql_error(db));
+    printf ("dm_tofu_select_zone_with_status: exec failed. %s\n",mysql_error(db));
     mysql_stmt_close(stmt);
     return -1;
   }
@@ -2734,12 +2822,12 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
   while (1) {
     status = mysql_stmt_fetch(stmt);
     if (status == MYSQL_NO_DATA && rc==0) {
-      printf ("dm_tofu_select_zone_status: normal. No data\n");
+      printf ("dm_tofu_select_zone_with_status: normal. No data\n");
       break; 
     } else if (status == MYSQL_NO_DATA && rc>0) {
       break; // Last line. Normal end of read after match.
     } else if (status == 1 ) {
-      printf ("dm_tofu_select_zone_status: Error. Can't check zone status for parent_name %s %s\n",parent_name,mysql_error(db));
+      printf ("dm_tofu_select_zone_with_status: Error. Can't check zone status for parent_name %s %s\n",parent_name,mysql_error(db));
       mysql_stmt_close(stmt);
       return -1;
     } 
@@ -2747,7 +2835,7 @@ int dm_tofu_select_zone_status(MYSQL *db, char *parent_name, char *zone_status, 
     printf("rc %i zone_name %.*s id %i\n",rc,(int)length[1],zone_name,zone_id);
     ll_zone_tmp=(ll_zone_t*)malloc(sizeof(ll_zone_t));
     if (ll_zone_tmp==NULL) {
-      printf("dm_tofu_select_zone_status: Error. Cannot allocate memory\n");
+      printf("dm_tofu_select_zone_with_status: Error. Cannot allocate memory\n");
       exit (0);
     }
     memset(ll_zone_tmp,'\0',sizeof(ll_zone_t));
@@ -2872,14 +2960,14 @@ int dm_tofu_ns_update(MYSQL *db, char *parent_name, char *zone_status, time_t sl
   printf("dm_tofu_ns_update: started\n");
 
   // get the list of zones in this parent in this status
-  rc=dm_tofu_select_zone_status(db, parent_name, zone_status, &ll_zone_head);
+  rc=dm_tofu_select_zone_with_status(db, parent_name, zone_status, &ll_zone_head);
 
   if (rc==0) {
     printf("dm_tofu_ns_update: nothing to do.\n");
     return rc;
   }
   if (rc<0) {
-    printf("dm_tofu_ns_update: Error in dm_tofu_select_zone_status. Nothing to do.\n");
+    printf("dm_tofu_ns_update: Error in dm_tofu_select_zone_with_status. Nothing to do.\n");
     return rc;
   }
 
@@ -3450,7 +3538,7 @@ char *dm_tofu_select_zone_ip(MYSQL *db, char *zone_name) {
   bool error[1];
   int rc=0;
 
-  char ipv6[INET6_ADDRSTRLEN]="";
+  char ipv6[INET6_ADDRSTRLEN]={'\0'};
 
   // select the ipv6 address from the db (if there is one)
 
@@ -3502,11 +3590,11 @@ char *dm_tofu_select_zone_ip(MYSQL *db, char *zone_name) {
   while (1) {
     status = mysql_stmt_fetch(stmt);
     if (status == 1 ) {
-      printf ("dm_tofu_select_zone_ip Error. Can't select zone_name %s\n",mysql_error(db));
+      printf ("dm_tofu_select_zone_ip Error. Can't select ip %s\n",mysql_error(db));
       mysql_stmt_close(stmt);
       return NULL;
     } else if (status == MYSQL_NO_DATA && rc==0) {
-      printf ("dm_tofu_select_zone_ip: Info. Can't find a zone_name.\n");
+      printf ("dm_tofu_select_zone_ip: Info. Can't find an ip.\n");
       mysql_stmt_close(stmt);
       return NULL;
     } else if (status == MYSQL_NO_DATA) {
@@ -3516,7 +3604,7 @@ char *dm_tofu_select_zone_ip(MYSQL *db, char *zone_name) {
     printf("rc %i len %i zone_name %s ipv6 %s\n",rc,(int)length[0],zone_name,ipv6);
   }
   mysql_stmt_close(stmt);
-  if ( (ipv6 ==NULL) || (strlen(ipv6)<2) ) {
+  if ( (strlen(ipv6)<2) ) {
     return NULL;
   }
   return dm_tofu_cp_name(ipv6);
@@ -3529,31 +3617,43 @@ char *dm_tofu_select_zone_ip(MYSQL *db, char *zone_name) {
 int dm_tofu_check_txt_tofu(char *acme_challenge, struct ssl_client *p_ssl_client) { // 1st arg the TXT challenge RR owner. 2nd = SSL client (for IP)
   int result=-1;
   char *ipv6_client=p_ssl_client->client_addr;
-  char *zone_name=dm_tofu_get_zone(p_ssl_client->db, acme_challenge); // find the zone associated with this RR
-  char *ipv6_db=NULL;
 
-  if ( (zone_name==NULL) || (strlen(zone_name)<2) ) {
-    return -1; // no matching zone
+  if ( (ipv6_client==NULL) || (strlen(ipv6_client)<2) ) {
+    printf ("ipv6_client is NULL\n");
+    return -1; // no client ip
   }
+  if (strlen(acme_challenge)>MYSQL_STRLEN) {
+    return -1; // name too long
+  }
+  char search_str[MYSQL_STRLEN]={'\0'};
+  strcpy(search_str,acme_challenge);
+  ldns_helpers_strip_trailing_dot(search_str);
 
-  if (zone_name!=NULL) {
+  char *zone_name=dm_tofu_get_zone(p_ssl_client->db, search_str); // find the zone associated with this RR
+
+  if ( (zone_name!=NULL) ) {
     // check the db for a hna ipv6 for this zone
+    char *ipv6_db=NULL;
     ipv6_db=dm_tofu_select_zone_ip(p_ssl_client->db,zone_name);
     free(zone_name);
     zone_name=NULL;
-  }
 
-  if (ipv6_db!=NULL) {
-    int cmp=strcmp(ipv6_db,ipv6_client); // ipv6 in the db should match the ipv6 of the client
-    if (cmp!=0) {
-      result=-1;
+    if ( (ipv6_db!=NULL) ) {
+      int cmp=strcmp(ipv6_db,ipv6_client); // ipv6 in the db should match the ipv6 of the client
+      if (cmp!=0) {
+        result=-1;
+      } else {
+        result=0;
+      }
+      printf ("ipv6_db %s ipv6_client %s\n",ipv6_db,ipv6_client);
+      free(ipv6_db);
+      ipv6_db=NULL;
     } else {
-      result=0;
-    }
-    free(ipv6_db);
-    ipv6_db=NULL;
+      printf ("ipv6_db is NULL\n");
+    }  
+  } else {
+    printf ("zone_name is NULL\n");
   }
-
   return result;
 }
 

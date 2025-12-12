@@ -29,8 +29,8 @@ void dm_tofu_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/key.pem","./testdata/key.pem"));
   CU_ASSERT(0!=cmp_file("./testdata/key.pem","./testdata/fullchain.pem"));
   //printf("cmp_file %i\n",cmp_file("./testdata/key.pem","./testdata/fullchain.pem"));
-  get_testdb("./testdata/got_testdb.sql");
-  CU_ASSERT(0==cmp_file("./testdata/expected_testdb.sql","./testdata/got_testdb.sql"));
+  get_testdb("./testdata/got_dm_tofu_testdb.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_tofu_testdb.sql","./testdata/got_dm_tofu_testdb.sql"));
 
 
   // test dm_tofu_count_parent

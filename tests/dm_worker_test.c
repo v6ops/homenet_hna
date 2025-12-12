@@ -65,12 +65,14 @@ void dm_worker_test(void) {
 
   printf("Reset test db\n");
   set_testdb("./testdata/reset_testdb.sql");
+  printf("Add additional test data to db\n");
+  set_testdb("./testdata/dm_worker_add_testdata.sql");
   printf("continue test_dm_worker\n");
   // check the test harness is working OK
   CU_ASSERT(0==cmp_file("./testdata/key.pem","./testdata/key.pem"));
   CU_ASSERT(0!=cmp_file("./testdata/key.pem","./testdata/fullchain.pem"));
-  get_testdb("./testdata/got_testdb.sql");
-  CU_ASSERT(0==cmp_file("./testdata/got_testdb.sql","./testdata/expected_testdb.sql"));
+  get_testdb("./testdata/got_dm_worker_testdb.sql");
+  CU_ASSERT(0==cmp_file("./testdata/expected_dm_worker_testdb.sql","./testdata/got_dm_worker_testdb.sql"));
 
   ldns_pkt *input_pkt_ds;
   ldns_pkt *input_pkt_ns;
@@ -100,7 +102,7 @@ void dm_worker_test(void) {
 
   // create an TXT PKT
   printf("start TXT\n");
-  char *rr_string_txt = "www.example.com.  600     IN	TXT	\"Welcome to the example domain!\"";
+  char *rr_string_txt = "_acme-challenge.device.vertex.deck.glad.example.com.  600     IN	TXT	\"Welcome to the example domain!\"";
   ldns_rr *txt_rr=NULL;
   ldns_rr_list *txt_rr_list=ldns_rr_list_new();
   l_status = ldns_rr_new_frm_str(&txt_rr,rr_string_txt,600,origin,&prev);
@@ -112,12 +114,36 @@ void dm_worker_test(void) {
   CU_ASSERT(LDNS_STATUS_OK==l_status);
   ldns_rr_print(stdout, txt_rr);
   input_pkt_txt=create_update_pkt("example.com.",txt_rr_list,NULL);
-  // test prescan
+  // first check the packet is as expected
   FILE *fptr_txt=fopen("./testdata/got_dm_worker_pkt_txt.txt","w");
   CU_ASSERT(NULL!=fptr_txt);
   ldns_pkt_print(fptr_txt,input_pkt_txt);
   fclose(fptr_txt);
   CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_txt.txt","./testdata/expected_dm_worker_pkt_txt.txt"));
+
+  // test prescan. This will fail on no IP on ssl
+  char *zone_name1=dm_tofu_get_zone(db,"_acme-challenge.device.vertex.deck.glad.example.com");
+  CU_ASSERT(zone_name1!=NULL);
+  if (zone_name1 !=NULL) {
+    CU_ASSERT(0==(strcmp(zone_name1,"device.vertex.deck.glad.example.com")));
+    free(zone_name1);
+  }
+
+
+  l_status=dm_worker_update_prescan(input_pkt_txt,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_REFUSED==l_status);
+  // ldns_helpers_pkt_free(input_pkt_txt);
+
+  // change the client ip and retest. will still fail because ip doesn't match the offer for this zone.
+  strcpy(p_ssl_client->client_addr,"2001:2::1");
+  l_status=dm_worker_update_prescan(input_pkt_txt,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_REFUSED==l_status);
+  // ldns_helpers_pkt_free(input_pkt_txt);
+
+  // change the client ip and retest. will succeed.
+  strcpy(p_ssl_client->client_addr,"2001:4::1");
   l_status=dm_worker_update_prescan(input_pkt_txt,p_ssl_client);
   printf("l_status: %i\n",l_status);
   CU_ASSERT(LDNS_RCODE_NOERROR==l_status);

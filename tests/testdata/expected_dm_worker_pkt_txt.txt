@@ -6,7 +6,7 @@
 ;; ANSWER SECTION:
 
 ;; AUTHORITY SECTION:
-www.example.com.	600	IN	TXT	"Welcome to the example domain!"
+_acme-challenge.device.vertex.deck.glad.example.com.	600	IN	TXT	"Welcome to the example domain!"
 
 ;; ADDITIONAL SECTION:
 
