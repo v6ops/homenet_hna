@@ -658,11 +658,13 @@ void dm_tofu_test(void) {
 
   zone_name=dm_tofu_get_zone(p_ssl_client->db, "garbage");
   if (zone_name!=NULL) {
-    CU_ASSERT(0==(strcmp(zone_name,"garbage")));
+    CU_ASSERT(0==(strcmp(zone_name,"real_garbage")));
     free(zone_name);
   } else {
     CU_ASSERT(1==1); // test succeeded. no zone
   }
+
+
 
   // valid txt update
   char str25[]="2001:1::1";
@@ -695,6 +697,49 @@ void dm_tofu_test(void) {
   check=dm_tofu_check_txt_tofu("_acme_challenge.jaguar.oak.guess.lord.example.com", p_ssl_client) ;
   CU_ASSERT(0==check);
 
+  // check dm_tofu_select_zone_status after completing transitions
+
+  char *zone_status={'\0'};
+
+  zone_status=dm_tofu_select_zone_status(p_ssl_client->db, "fabric.shine.flip.any.example.com");
+  if (zone_status!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_status,"created")));
+    free(zone_status);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_status=dm_tofu_select_zone_status(p_ssl_client->db, "device.vertex.deck.glad.example.com");
+  if (zone_status!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_status,"offered")));
+    free(zone_status);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_status=dm_tofu_select_zone_status(p_ssl_client->db, "jaguar.oak.guess.lord.example.com");
+  if (zone_status!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_status,"assigned")));
+    free(zone_status);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_status=dm_tofu_select_zone_status(p_ssl_client->db, "basket.delay.need.sweet.example.com");
+  if (zone_status!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_status,"delegated")));
+    free(zone_status);
+  } else {
+    CU_ASSERT(0==1); // test failed
+  }
+
+  zone_status=dm_tofu_select_zone_status(p_ssl_client->db, "garbage");
+  if (zone_status!=NULL) {
+    CU_ASSERT(0==(strcmp(zone_status,"real_garbage")));
+    free(zone_status);
+  } else {
+    CU_ASSERT(1==1); // test succeeded
+  }
 
 
 
