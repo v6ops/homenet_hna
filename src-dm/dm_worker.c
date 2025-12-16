@@ -344,7 +344,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
     // rr_owner has already been set above for there types
     if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
            || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
-      ldns_buffer *buf4=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+      // ldns_buffer *buf4=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
       char *zone_name=dm_tofu_get_zone(p_ssl_client->db, rr_owner);
       if (zone_name==NULL) {
         printf("Warning: RR with unknown zone in authority section\n");
