@@ -233,6 +233,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
 
   // Step through the authority/update section
   uint16_t i;
+  int seen_ns=0; // remember if an NS has been seen
   for (i=0;i<l_nscount;i++) {
     ldns_rr *rr;
     rr=ldns_rr_list_rr(l_rr_auth_list,i);
@@ -287,9 +288,15 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
       return LDNS_RCODE_FORMERR;
     }
 
-
-    // local policy
+    // *** local policy ***
+    // from name delegation draft
+    // this could be more efficient, but wanted to preserve non tofu code.
     //
+    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) ) {
+      seen_ns++;
+    } 
+
+   
     // check certificate DN against text version of owner of the DS AAAA NS RR
     if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
            || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AAAA) ) {
@@ -331,13 +338,73 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
           return LDNS_RCODE_REFUSED;
       }
     }
+
+    // We can also check whether we know this zone in the database.
+    // Future versions might allow dynamic zone creation, but currently we pre-create zones to rate limit
+    // rr_owner has already been set above for there types
+    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
+           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
+      ldns_buffer *buf4=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+      char *zone_name=dm_tofu_get_zone(p_ssl_client->db, rr_owner);
+      if (zone_name==NULL) {
+        printf("Warning: RR with unknown zone in authority section\n");
+        return LDNS_RCODE_REFUSED; // RR for a domain we don't know
+      }
+      int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, zone_name);
+      free(zone_name);
+      zone_name=NULL;
+      if (zone_id<1) {
+        printf("Warning: RR with unknown zone in authority section\n");
+        return LDNS_RCODE_REFUSED; // RR for a domain we don't know
+      }
+    }
 #endif // end WITH_TOFU
+      
     else { // we don't know what to do with this RR
       printf ("Warning unknown RR TYPE in update: %i.\n",ldns_rr_get_type(rr));
       return LDNS_RCODE_REFUSED;
     }
   
-  } // end for loop
+  } // end NS for loop
+    
+  // Check NS from update section and AAAA from additional section match up if NS seen.
+  // NS have all been checked before here. Done this way to avoid alloc & free linked lists
+  if (seen_ns==1) { //process additional section
+    ldns_rr *query_additional_rr;
+    uint16_t l_arcount=ldns_pkt_arcount(p);
+
+    for (i=0;i<l_arcount;i++) {
+      query_additional_rr=ldns_rr_list_rr(ldns_pkt_additional(p),i);
+      if ( (ldns_rr_get_type(query_additional_rr)==LDNS_RR_TYPE_AAAA) ) {
+	 printf("Warning: non AAAA RR in additional section\n");
+         return LDNS_RCODE_FORMERR;
+      } 
+      ldns_rdf *rr_aaaa_rdf=ldns_rr_owner(query_additional_rr);
+      uint16_t j;
+      int related_ns=0; // flag if there is a related ns found
+      for (j=0;j<l_nscount;j++) {
+        ldns_rr *query_authority_rr=ldns_rr_list_rr(ldns_pkt_authority(p),j);
+	size_t rd_count=ldns_rr_rd_count(query_authority_rr);
+	size_t k=0;
+        for (k=0;k<rd_count;k++) {
+	  ldns_rdf *ns_rdf=ldns_rr_rdf(query_authority_rr,k);
+	  if (ldns_rdf_get_type(ns_rdf) != LDNS_RDF_TYPE_DNAME) {
+            continue;
+	  }
+	  if (ldns_rdf_compare(ns_rdf,rr_aaaa_rdf) ==0 ) { // check if the AAAA owner matches an RDF in the NS
+            related_ns=1;
+	    break;
+          }
+	} // for RDF in NS RR
+      } // for authoritive RR
+      if (related_ns != 1) {
+        printf("Warning: AAAA RR in additional section without matchin NS\n");
+      return LDNS_RCODE_REFUSED;
+      }
+    } // for additional RR
+  } // end seen_ns=1
+
+  // all checks passed
   return LDNS_RCODE_NOERROR;
 }
 
@@ -348,15 +415,9 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
   char buf[80];
 
   ldns_rr *query_authority_rr;
-  ldns_rdf  *owner;
-  ldns_rdf *rdf;
   ldns_rdf *soa_owner_rdf;
-  ldns_rdf *ns_owner_rdf;
   char soa_owner[ldns_helpers_max_buffer_size]="\0";
-  char ns_owner[ldns_helpers_max_buffer_size]="\0";
-  char ds_owner[ldns_helpers_max_buffer_size]="\0";
   //char ns_data[ldns_helpers_max_buffer_size]="\0";
-  char listen_string[ldns_helpers_max_buffer_size]="\0";
 
   // some sanity checking
   if (!update_pkt) {
@@ -371,28 +432,6 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
     response_pkt=ldns_helpers_pkt_error(update_pkt,l_error); // we reject this packet so don't process further
     return response_pkt;
   }
-/*
-  // Question should contain exactly 1 RR, which is a SOA, and the owner should match one of our parent zones 
-  if (ldns_rr_list_rr_count(ldns_pkt_question(update_pkt)) !=1) {
-    printf("Expected 1 RR in the question\n");
-    response_pkt=ldns_helpers_pkt_error(update_pkt,LDNS_RCODE_FORMERR);
-    return response_pkt;
-  } else if (ldns_rr_get_type(ldns_rr_list_rr(ldns_pkt_question(update_pkt),0)) != LDNS_RR_TYPE_SOA ) {
-    printf("Expected SOA RR in the question\n");
-    response_pkt=ldns_helpers_pkt_error(update_pkt,LDNS_RCODE_FORMERR);
-    return response_pkt;
-  } else {
-    soa_owner_rdf=ldns_rr_owner(ldns_rr_list_rr(ldns_pkt_question(update_pkt),0));
-    ldns_dname_2str(soa_owner,soa_owner_rdf);
-    char my_root[ldns_helpers_max_buffer_size]="homenetdns.com\0"; // parent zone is hard coded when there is no db.
-    size_t	len=strlen(my_root);
-    if (strncmp(my_root,soa_owner,len) !=0) {
-      printf("Expected owner of the SOA in the UPDATE is %s, got %s\n",my_root,soa_owner);
-      response_pkt=ldns_helpers_pkt_error(update_pkt,LDNS_RCODE_REFUSED); // we don't serve this parent
-      return response_pkt;
-    }
-  }
-  */
 
   printf("Incoming update passed sanity checks\n");
   soa_owner_rdf=ldns_rr_owner(ldns_rr_list_rr(ldns_pkt_question(update_pkt),0));
@@ -402,8 +441,69 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
 
   uint16_t l_nscount=0;
   l_nscount=ldns_pkt_nscount(update_pkt);
-  // while ( (query_authority_rr=ldns_rr_list_pop_rr(ldns_pkt_authority(update_pkt))) ){
   uint16_t i=0;
+#ifdef WITH_TOFU
+  time_t slot_time=get_time_slot(0);
+  int seen_ns=0;
+  char rr_owner[ldns_helpers_max_buffer_size]="\0";
+  while (i<l_nscount) {
+    query_authority_rr=ldns_rr_list_rr(ldns_pkt_authority(update_pkt),i);
+    ldns_rdf *rr_owner_rdf=ldns_rr_owner(query_authority_rr);
+    ldns_dname_2str(rr_owner,rr_owner_rdf);
+    char *zone_name=dm_tofu_get_zone(p_ssl_client->db, rr_owner);
+    if (zone_name==NULL) {
+      continue; // this should have been picked up in prescan
+    }
+    int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, zone_name);
+    free(zone_name);
+    zone_name=NULL;
+    if (zone_id<1) {
+      continue; // also should be picked up in prescan
+    }
+    if (ldns_rr_get_type(query_authority_rr) == LDNS_RR_TYPE_NS ) {
+      seen_ns=1; // remember whether an NS has been seen. If so process addtional section.
+    }
+    int res=dm_tofu_insert_rr(p_ssl_client->db, zone_id, query_authority_rr, slot_time) ;
+    if (res !=LDNS_RCODE_NOERROR) {
+      printf("Unexpected error when inserting into db %u\n",res);
+      break;
+    }
+    i++;
+  } // while RR
+  if (seen_ns==1) { //process additional section
+    uint16_t l_arcount=0;
+    ldns_rr *query_additional_rr;
+    l_arcount=ldns_pkt_arcount(update_pkt);
+    i=0;
+    while (i<l_arcount) {
+      query_additional_rr=ldns_rr_list_rr(ldns_pkt_additional(update_pkt),i);
+      ldns_rdf *rr_owner_rdf=ldns_rr_owner(query_additional_rr);
+      ldns_dname_2str(rr_owner,rr_owner_rdf);
+      char *zone_name=dm_tofu_get_zone(p_ssl_client->db, rr_owner);
+      if (zone_name==NULL) {
+        continue; // this should have been picked up in prescan
+      }
+      int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, zone_name);
+      free(zone_name);
+      zone_name=NULL;
+      if (zone_id<1) {
+        continue; // also should be picked up in prescan
+      }
+      int res=dm_tofu_insert_rr(p_ssl_client->db, zone_id, query_additional_rr, slot_time) ;
+      if (res !=LDNS_RCODE_NOERROR) {
+        printf("Unexpected error when inserting into db %u\n",res);
+        break;
+      }
+      i++;
+    }
+  } // while addtional RR
+#else // no WITH_TOFU
+  char ns_owner[ldns_helpers_max_buffer_size]="\0";
+  ldns_rdf *ns_owner_rdf;
+  char ds_owner[ldns_helpers_max_buffer_size]="\0";
+  ldns_rdf  *owner;
+  ldns_rdf *rdf;
+  char listen_string[ldns_helpers_max_buffer_size]="\0";
   while (i<l_nscount) {
     query_authority_rr=ldns_rr_list_rr(ldns_pkt_authority(update_pkt),i);
 
@@ -417,13 +517,6 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       ldns_dname_2str(ns_owner,ns_owner_rdf);
       ldns_helpers_strip_trailing_dot(ns_owner);
       printf("NS RR Owner %s\n",ns_owner);
-      /* already checked
-      // check certificate DN against owner of the NS RR
-      printf("Checking cert matches RR owner %s\n",ns_owner);
-      if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ns_owner) !=1) {
-        printf ("Warning cert does not match RR owner %s\n",ns_owner);
-      }
-      */
       // additional checks to match the RDF of the NS RR to the owner of the A and AAAA RRs is done in ldns_helpers_rr_list2listen_string
       strcpy(listen_string,"[\0");
       while ( (rdf=ldns_rr_pop_rdf(query_authority_rr)) ) {
@@ -450,13 +543,6 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
       ldns_dname_2str(ds_owner,owner);
       ldns_helpers_strip_trailing_dot(ds_owner);
       printf("Owner %s\n",ds_owner);
-      /* already checked
-      // check certificate DN against RR owner
-      printf("Checking cert matches RR owner %s\n",ds_owner);
-      if(ssl_helpers_check_cert_cn(p_ssl_client->ssl, ds_owner) !=1) {
-        printf ("Warning cert does not match RR owner %s\n",ds_owner);
-      }
-      */
       printf("Saving DS\n");
       ldns_rr_print(stdout,query_authority_rr);
       char *rr_ptr;
@@ -467,6 +553,7 @@ ldns_pkt * dm_worker_update(ldns_pkt *update_pkt, struct ssl_client *p_ssl_clien
     }
     i++;
   } // while RR
+#endif // end WITH_TOFU
   // we're done. return no error.
   response_pkt=ldns_helpers_pkt_error(update_pkt,LDNS_RCODE_NOERROR);
   return response_pkt;
