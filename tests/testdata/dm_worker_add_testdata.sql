@@ -14,3 +14,5 @@ INSERT INTO `zone` VALUES
 (3,'jaguar.oak.guess.lord.example.com',NULL,0,'example.com',7,'assigned',1140),
 (4,'device.vertex.deck.glad.example.com',NULL,0,'example.com',8,'offered',1020),
 (5,'fabric.shine.flip.any.example.com',NULL,0,'example.com',0,'created',1020);
+INSERT INTO `rr` VALUES
+(11,1,'linear.realm.piece.floor.example.com.',600,'NS','dm1.linear.realm.piece.floor.example.com.','created',1380);

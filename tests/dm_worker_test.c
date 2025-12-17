@@ -78,6 +78,7 @@ void dm_worker_test(void) {
   ldns_pkt *input_pkt_ns;
   ldns_pkt *input_pkt_txt;
   ldns_pkt *input_pkt_aaaa;
+  ldns_pkt *input_pkt_aaaa2;
   ldns_pkt *output_pkt;
 
   // spoof test ssl object
@@ -183,7 +184,7 @@ void dm_worker_test(void) {
   CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
   ldns_helpers_pkt_free(input_pkt_ns);
 
-  // create an AAAA PKT. Generally AAAA would be associated with an NS, but could be useful for renumbering events
+  // create an AAAA PKT. Generally AAAA would be associated directly with an NS via the additional section, but could be useful for renumbering events
   printf("start AAAA\n");
   char *rr_string_aaaa = "www.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
   ldns_rr *aaaa_rr=NULL;
@@ -205,10 +206,34 @@ void dm_worker_test(void) {
   CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_aaaa.txt","./testdata/expected_dm_worker_pkt_aaaa.txt"));
   l_status=dm_worker_update_prescan(input_pkt_aaaa,p_ssl_client);
   printf("l_status: %i\n",l_status);
-  CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
+  CU_ASSERT(LDNS_RCODE_REFUSED==l_status); // www.example.com has no existing NS
   ldns_helpers_pkt_free(input_pkt_aaaa);
 
   
+  // create a valid AAAA PKT.
+  char *rr_string_aaaa2 = "dm1.linear.realm.piece.floor.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
+  ldns_rr *aaaa_rr2=NULL;
+  ldns_rr_list *aaaa_rr_list2=ldns_rr_list_new();
+  l_status = ldns_rr_new_frm_str(&aaaa_rr2,rr_string_aaaa2,600,origin,&prev);
+  if (prev!=NULL) {
+    ldns_rdf_deep_free(prev);
+    prev=NULL;
+  }
+  ldns_rr_set_push_rr(aaaa_rr_list2,aaaa_rr2);
+  CU_ASSERT(LDNS_STATUS_OK==l_status);
+  ldns_rr_print(stdout, aaaa_rr2);
+  input_pkt_aaaa2=create_update_pkt("example.com.",aaaa_rr_list2,NULL);
+  // test prescan
+  FILE *fptr_aaaa2=fopen("./testdata/got_dm_worker_pkt_aaaa2.txt","w");
+  CU_ASSERT(NULL!=fptr_aaaa2);
+  ldns_pkt_print(fptr_aaaa2,input_pkt_aaaa2);
+  fclose(fptr_aaaa2);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_worker_pkt_aaaa2.txt","./testdata/expected_dm_worker_pkt_aaaa2.txt"));
+  l_status=dm_worker_update_prescan(input_pkt_aaaa2,p_ssl_client);
+  printf("l_status: %i\n",l_status);
+  CU_ASSERT(LDNS_RCODE_NOERROR==l_status); // dm1.linear.realm.piece.floor.example.com has an existing NS
+  ldns_helpers_pkt_free(input_pkt_aaaa2);
+
   
   
   

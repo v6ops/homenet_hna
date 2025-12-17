@@ -295,7 +295,6 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
     if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) ) {
       seen_ns++;
     } 
-
    
     // check certificate DN against text version of owner of the DS NS RR
     if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS) ) {
@@ -320,6 +319,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
 #ifdef WITH_TOFU
       // Also check whether we know this zone in the database.
       // Future versions might allow dynamic zone creation, but currently we pre-create zones to rate limit
+      // TODO should check NS RDATA is also in this zone.
       int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, rr_owner);
       if (zone_id<1) {
         printf("Warning: RR with unknown zone in authority section\n");
@@ -329,13 +329,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
     } // end type = NS || DS
 #ifdef WITH_TOFU
     else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AAAA) ) {
-      // must match an existing NS. Possible use for renumbering.
-      // TODO
-    }
-    // we also accept TXT without a cert
-    else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
-      // get the owner and check against IP of this session in the infra table (which was updated by the offer request)
-      // also implies zone is known in the db.
+      // rr_owner MUST match an existing NS rr_rdata. Possible use for renumbering.
       ldns_buffer *buf3=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
       l_status = ldns_rdf2buffer_str_dname(buf3, ldns_rr_owner(rr));
       if (l_status!=LDNS_STATUS_OK ) {
@@ -345,6 +339,25 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
       strcpy(rr_owner,tmp3);
       ldns_buffer_free(buf3); // doesn't free buffer data
       LDNS_FREE(tmp3); // free the buffer data
+      int rr_id= dm_tofu_select_rdata_id(p_ssl_client->db, rr_owner, "NS") ;
+      if (rr_id<1) {
+        printf("Warning: AAAA RR with no related existing NS RR in the db.\n");
+        return LDNS_RCODE_REFUSED; // RR for a AAAA we don't know the associated NS (remote_id)
+      }
+    }
+    // we also accept TXT without a cert
+    else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
+      // get the owner and check against IP of this session in the infra table (which was updated by the offer request)
+      // also implies zone is known in the db.
+      ldns_buffer *buf4=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
+      l_status = ldns_rdf2buffer_str_dname(buf4, ldns_rr_owner(rr));
+      if (l_status!=LDNS_STATUS_OK ) {
+         return LDNS_RCODE_FORMERR;
+      }
+      char *tmp4=ldns_buffer_export2str(buf4);
+      strcpy(rr_owner,tmp4);
+      ldns_buffer_free(buf4); // doesn't free buffer data
+      LDNS_FREE(tmp4); // free the buffer data
       printf("Checking client ip matches previous ip of offer request %s\n",rr_owner);
       if (dm_tofu_check_txt_tofu(rr_owner, p_ssl_client) !=0) {
           printf ("Warning ip does not match ip of offer request %s\n",rr_owner);
@@ -369,7 +382,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
 
     for (i=0;i<l_arcount;i++) {
       query_additional_rr=ldns_rr_list_rr(ldns_pkt_additional(p),i);
-      if ( (ldns_rr_get_type(query_additional_rr)==LDNS_RR_TYPE_AAAA) ) {
+      if ( (ldns_rr_get_type(query_additional_rr)!=LDNS_RR_TYPE_AAAA) ) {
 	 printf("Warning: non AAAA RR in additional section\n");
          return LDNS_RCODE_FORMERR;
       } 
@@ -383,7 +396,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
         for (k=0;k<rd_count;k++) {
 	  ldns_rdf *ns_rdf=ldns_rr_rdf(query_authority_rr,k);
 	  if (ldns_rdf_get_type(ns_rdf) != LDNS_RDF_TYPE_DNAME) {
-            continue;
+            continue; // this should never happen
 	  }
 	  if (ldns_rdf_compare(ns_rdf,rr_aaaa_rdf) ==0 ) { // check if the AAAA owner matches an RDF in the NS
             related_ns=1;
@@ -392,7 +405,7 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
 	} // for RDF in NS RR
       } // for authoritive RR
       if (related_ns != 1) {
-        printf("Warning: AAAA RR in additional section without matchin NS\n");
+        printf("Warning: AAAA RR in additional section without matching NS\n");
       return LDNS_RCODE_REFUSED;
       }
     } // for additional RR

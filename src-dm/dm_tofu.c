@@ -1418,6 +1418,107 @@ int dm_tofu_insert_rr(MYSQL *db, int zone_id, ldns_rr *rr, time_t slot_time) {
 
 }
 
+//given an rr_rdata, return the rr id of a matching RR type or -1 for not found
+int dm_tofu_select_rdata_id(MYSQL *db, char *rr_rdata, char *rr_type) {
+  int rr_id=0;
+  MYSQL_STMT *stmt;
+  MYSQL_BIND bind[2];
+  memset(bind, 0, sizeof(MYSQL_BIND));
+  size_t len1,len2;
+  MYSQL_BIND bindout[1];
+  memset(bindout, 0, sizeof(bindout));
+
+  int status;
+  unsigned long length[1];
+  bool is_null[1];
+  bool error[1];
+  int rc=0;
+
+  printf("dm_tofu_select_rdata_id\n");
+
+  if ( (rr_rdata==NULL) || (strlen(rr_rdata)<2)  ) {
+    printf("dm_tofu_select_rdata_id: needs a valid rr_rdata\n");
+    return -1;
+  }
+  if ( (rr_type==NULL) || (strlen(rr_type)<2)  ) {
+    printf("dm_tofu_select_rdata_id: needs a valid rr_type\n");
+    return -1;
+  }
+
+  // select an rr_id with exact match on rr_rdata and rr_type
+  // Theoretically there can be more than one, but this is only currently used as a check of existence.
+  stmt=mysql_stmt_init(db);
+  char *stmt_str="SELECT A.rr_id FROM rr AS A WHERE ( (A.rr_rdata=?) AND (rr_type=?) AND (rr_status <>'deleting' ) ) LIMIT 1;";
+
+  if (mysql_stmt_prepare(stmt, stmt_str, strlen(stmt_str))) {
+    printf ("dm_tofu_select_rdata_id: prepare failed. %s\n",mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  bind[0].buffer_type= MYSQL_TYPE_STRING;
+  bind[0].buffer= (char *)rr_rdata;
+  bind[0].buffer_length= MYSQL_STRLEN;
+  bind[0].is_null= 0;
+  len1=strlen(rr_rdata);
+  bind[0].length= &len1;
+
+  bind[1].buffer_type= MYSQL_TYPE_STRING;
+  bind[1].buffer= (char *)rr_type;
+  bind[1].buffer_length= MYSQL_STRLEN;
+  bind[1].is_null= 0;
+  len2=strlen(rr_type);
+  bind[1].length= &len2;
+
+  if (mysql_stmt_bind_param(stmt, bind) ) {
+    printf ("dm_tofu_select_rdata_id: bind failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+  if (mysql_stmt_execute(stmt) ) {
+    printf ("dm_tofu_select_rdata_id: exec failed. %s\n",mysql_error(db));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  /* INTEGER COLUMN rr_id */
+  bindout[0].buffer_type= MYSQL_TYPE_LONG;
+  bindout[0].buffer= (char *)&rr_id;
+  bindout[0].is_null= &is_null[0];
+  bindout[0].length= &length[0];
+  bindout[0].error= &error[0];
+ 
+  if (mysql_stmt_bind_result(stmt, bindout)) {
+    fprintf(stderr, " mysql_stmt_bind_result() failed\n");
+    fprintf(stderr, " %s\n", mysql_stmt_error(stmt));
+    mysql_stmt_close(stmt);
+    return -1;
+  }
+
+  // While rows to read. For this query there is only 0 or 1.
+  rc=0;  // row count
+  while (1) {
+    status = mysql_stmt_fetch(stmt);
+    if (status == 1 ) {
+      printf ("select_rdata_id Error. Can't select rr_owner %s\n",mysql_error(db));
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA && rc==0) {
+      printf ("select_rdata_id: Info. Can't find a rr_owner.\n");
+      mysql_stmt_close(stmt);
+      return -1;
+    } else if (status == MYSQL_NO_DATA) {
+      break; // last line. normal end of read
+    }
+    rc++;
+    printf("rc %i rr_rdata %.*s id %i\n",rc,(int)length[0],rr_rdata,rr_id);
+  }
+  mysql_stmt_close(stmt);
+  return rr_id;
+
+}
+
+
 // delete db entry for the rr rr_id
 int dm_tofu_delete_rr(MYSQL *db, int rr_id) {
 
