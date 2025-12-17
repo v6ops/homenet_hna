@@ -297,6 +297,10 @@ int dm_tofu_select_zone_id(MYSQL *db, char *zone_name){
   int rc=0;
 
   printf("select_zone_id\n");
+  // Strip any trailing dots. These are never stored in the db.
+  char search_str[MYSQL_STRLEN]={'\0'};
+  strcpy(search_str,zone_name);
+  ldns_helpers_strip_trailing_dot(search_str);
 
   stmt=mysql_stmt_init(db);
   char *stmt_str="SELECT zone_id FROM zone WHERE (zone_name =?) ORDER BY zone_id LIMIT 1;";
@@ -309,10 +313,10 @@ int dm_tofu_select_zone_id(MYSQL *db, char *zone_name){
   // zone_name
   memset(bind, 0, sizeof(bind));
   bind[0].buffer_type= MYSQL_TYPE_STRING;
-  bind[0].buffer= (char *)zone_name;
+  bind[0].buffer= (char *)search_str;
   bind[0].buffer_length= MYSQL_STRLEN;
   bind[0].is_null= 0;
-  len1=strlen(zone_name);
+  len1=strlen(search_str);
   bind[0].length= &len1;
 
   if (mysql_stmt_bind_param(stmt, bind)) {
@@ -2095,6 +2099,7 @@ int dm_tofu_select_parent_func(MYSQL *db, ll_parent_t **ll_parent_head,char *typ
 
 // given a rr_owner, return the longest match from the zone table
 // returns zone_name or NULL on failure or no match
+// trailing odts are striopped before searching
 // remember to free
 char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
   MYSQL_STMT *stmt;
@@ -2116,6 +2121,10 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
     printf("dm_tofu_get_zone: needs a rr name\n");
     return NULL;
   }
+  // Strip any trailing dots. These are never stored in the db.
+  char search_str[MYSQL_STRLEN]={'\0'};
+  strcpy(search_str,rr_owner);
+  ldns_helpers_strip_trailing_dot(search_str);
 
   stmt=mysql_stmt_init(db);
   // regexp (literal dot)<rr_owner with dots escaped><anchored to end of string>
@@ -2131,10 +2140,10 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
   }
 
   bind[0].buffer_type= MYSQL_TYPE_STRING;
-  bind[0].buffer= (char *)rr_owner;
+  bind[0].buffer= (char *)search_str;
   bind[0].buffer_length= MYSQL_STRLEN;
   bind[0].is_null= 0;
-  len1=strlen(rr_owner);
+  len1=strlen(search_str);
   bind[0].length= &len1;
 
   if (mysql_stmt_bind_param(stmt, bind) ) {
@@ -2175,7 +2184,7 @@ char *dm_tofu_get_zone(MYSQL *db, char *rr_owner) {
       // printf ("dm_tofu_get_zone: normal end \n");
       break; // Last line. Normal end of read after match.
     } else if (status == 1 ) {
-      printf ("dm_tofu_get_zone: Error. Can't check zone name for zone_name %s %s\n",rr_owner,mysql_error(db));
+      printf ("dm_tofu_get_zone: Error. Can't check zone name for zone_name %s %s\n",search_str,mysql_error(db));
       mysql_stmt_close(stmt);
       return NULL;
     } 
@@ -3460,11 +3469,7 @@ int dm_tofu_check_txt_tofu(char *acme_challenge, struct ssl_client *p_ssl_client
   if (strlen(acme_challenge)>MYSQL_STRLEN) {
     return -1; // name too long
   }
-  char search_str[MYSQL_STRLEN]={'\0'};
-  strcpy(search_str,acme_challenge);
-  ldns_helpers_strip_trailing_dot(search_str);
-
-  char *zone_name=dm_tofu_get_zone(p_ssl_client->db, search_str); // find the zone associated with this RR
+  char *zone_name=dm_tofu_get_zone(p_ssl_client->db, acme_challenge); // find the zone associated with this RR
 
   if ( (zone_name!=NULL) ) {
     // check the db for a hna ipv6 for this zone

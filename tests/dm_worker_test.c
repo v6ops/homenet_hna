@@ -151,7 +151,7 @@ void dm_worker_test(void) {
 
   // create an DS PKT
   printf("start DS\n");
-  char *rr_string_ds = "www.example.com.  600     IN      DS      26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
+  char *rr_string_ds = "jaguar.oak.guess.lord.example.com.  600     IN      DS      26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539";
   ldns_rr *ds_rr=NULL;
   ldns_rr_list *ds_rr_list=ldns_rr_list_new();
   l_status = ldns_rr_new_frm_str(&ds_rr,rr_string_ds,600,origin,&prev);
@@ -183,7 +183,7 @@ void dm_worker_test(void) {
   CU_ASSERT(LDNS_RCODE_NOERROR==l_status);
   ldns_helpers_pkt_free(input_pkt_ns);
 
-  // create an AAAA PKT. Generally AAAA would be associated with an NS, but could be usefule for renumbering events
+  // create an AAAA PKT. Generally AAAA would be associated with an NS, but could be useful for renumbering events
   printf("start AAAA\n");
   char *rr_string_aaaa = "www.example.com.	600	IN	AAAA 2001:470:1f15:62e:21c:c4ff:fec9:de16";
   ldns_rr *aaaa_rr=NULL;

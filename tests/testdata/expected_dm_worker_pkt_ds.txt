@@ -6,7 +6,7 @@
 ;; ANSWER SECTION:
 
 ;; AUTHORITY SECTION:
-www.example.com.	600	IN	DS	26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539
+jaguar.oak.guess.lord.example.com.	600	IN	DS	26160 5 2 ce0eb9e59ee1de2c681a330e3a7c08376f28602cdf990ee4ec88d2a8bdb51539
 
 ;; ADDITIONAL SECTION:
 

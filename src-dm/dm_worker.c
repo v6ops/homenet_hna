@@ -297,9 +297,8 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
     } 
 
    
-    // check certificate DN against text version of owner of the DS AAAA NS RR
-    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
-           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AAAA) ) {
+    // check certificate DN against text version of owner of the DS NS RR
+    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS) ) {
       ldns_buffer *buf2=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
       l_status = ldns_rdf2buffer_str_dname(buf2, ldns_rr_owner(rr));
       if (l_status!=LDNS_STATUS_OK ) {
@@ -318,11 +317,25 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
           return LDNS_RCODE_REFUSED;
         }
       }
-    }
 #ifdef WITH_TOFU
+      // Also check whether we know this zone in the database.
+      // Future versions might allow dynamic zone creation, but currently we pre-create zones to rate limit
+      int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, rr_owner);
+      if (zone_id<1) {
+        printf("Warning: RR with unknown zone in authority section\n");
+        return LDNS_RCODE_REFUSED; // RR for a domain we don't know
+      }
+#endif // end WITH_TOFU
+    } // end type = NS || DS
+#ifdef WITH_TOFU
+    else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_AAAA) ) {
+      // must match an existing NS. Possible use for renumbering.
+      // TODO
+    }
     // we also accept TXT without a cert
     else if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
-      // get the owner and check against IP of this session in the infra table (which was updated by the offer request
+      // get the owner and check against IP of this session in the infra table (which was updated by the offer request)
+      // also implies zone is known in the db.
       ldns_buffer *buf3=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
       l_status = ldns_rdf2buffer_str_dname(buf3, ldns_rr_owner(rr));
       if (l_status!=LDNS_STATUS_OK ) {
@@ -338,33 +351,14 @@ int dm_worker_update_prescan(const ldns_pkt *p, struct ssl_client *p_ssl_client 
           return LDNS_RCODE_REFUSED;
       }
     }
-
-    // We can also check whether we know this zone in the database.
-    // Future versions might allow dynamic zone creation, but currently we pre-create zones to rate limit
-    // rr_owner has already been set above for there types
-    if ( (ldns_rr_get_type(rr)==LDNS_RR_TYPE_NS) || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_DS)
-           || (ldns_rr_get_type(rr)==LDNS_RR_TYPE_TXT) ) {
-      // ldns_buffer *buf4=ldns_buffer_new(LDNS_MAX_DOMAINLEN);
-      char *zone_name=dm_tofu_get_zone(p_ssl_client->db, rr_owner);
-      if (zone_name==NULL) {
-        printf("Warning: RR with unknown zone in authority section\n");
-        return LDNS_RCODE_REFUSED; // RR for a domain we don't know
-      }
-      int zone_id=dm_tofu_select_zone_id(p_ssl_client->db, zone_name);
-      free(zone_name);
-      zone_name=NULL;
-      if (zone_id<1) {
-        printf("Warning: RR with unknown zone in authority section\n");
-        return LDNS_RCODE_REFUSED; // RR for a domain we don't know
-      }
-    }
 #endif // end WITH_TOFU
-      
+
     else { // we don't know what to do with this RR
       printf ("Warning unknown RR TYPE in update: %i.\n",ldns_rr_get_type(rr));
       return LDNS_RCODE_REFUSED;
     }
-  
+
+      
   } // end NS for loop
     
   // Check NS from update section and AAAA from additional section match up if NS seen.
