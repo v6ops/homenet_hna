@@ -4,17 +4,12 @@ AM_CFLAGS = -fPIC -Wall -Wextra
 AM_CFLAGS += -I/usr/local/include
 AM_LDFLAGS = -L/usr/local/lib -L.
 # multiple builds. Pick your poison. Some simpler versions for debug and test
-bin_PROGRAMS = server serverssl libevent_dm libevent_tofu homenet_dm homenet_tofu testdb
+bin_PROGRAMS = server serverssl libevent_dm libevent_tofu homenet_dm homenet_tofu
 # single thread echo server libevent
 server_SOURCES = server.c workqueue.c
 # single thread echo server libevent with ssl
 serverssl_SOURCES = server-ssl.c workqueue.c util.c 
 serverssl_LDADD = $(top_builddir)/lib/libhna.la -lssl -lcrypto
-# simple DB test
-testdb_SOURCES = testdb.c dm_tofu.c db.c
-#testdb_LDADD = -lmysqlclient
-testdb_LDADD = $(top_builddir)/lib/libhna.la -lmysqlclient
-testdb_CFLAGS= -I/usr/include/mysql -DWITH_TOFU $(AM_CFLAGS)
 # single thread DM based on libevent, TLS, TOFU (Trust on First Use)
 libevent_tofu_SOURCES = libevent_dm.c dm_worker.c dm_tofu.c db.c util.c
 libevent_tofu_LDADD = $(top_builddir)/lib/libhna.la -lssl -lcrypto -lmysqlclient

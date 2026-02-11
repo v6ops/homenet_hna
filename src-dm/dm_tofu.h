@@ -507,9 +507,6 @@ typedef struct ll_rr_update { // only used to track db changes
 // push an rr_id onto a list for db update
 void push_rr_update(ll_rr_update_t **ll_rr_update_head, ll_rr_update_t **ll_rr_update_current, int rr_id, char *rr_status);
 
-// returns an offered zone from the pre-created list in packet format
- ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) ; // parent_name is the owner. zone is the zone to be delegated
-
 // function called from dm_worker to process and inbound query PTR packet
 ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_client); // 1st arg = packet, 2nd arg=SSL client (for cert)
 

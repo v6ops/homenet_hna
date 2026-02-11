@@ -3484,12 +3484,12 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
   char buf[160+MYSQL_STRLEN]={'\0'};
   ldns_pkt_rcode rcode=LDNS_RCODE_NOERROR;
   char query_name[MYSQL_STRLEN]={'\0'};
-  char parent_name[MYSQL_STRLEN]={'\0'};
+  //char parent_name[MYSQL_STRLEN]={'\0'};
   char child_rr_str[80+MYSQL_STRLEN]={'\0'};
       
   // some sanity checking
   if (!query_pkt) {
-    sprintf(buf, "Blank packet passed to dm_tofu_query_ptr_response\n");
+    sprintf(buf, "Blank packet passed to dm_worker_query_ptr\n");
     printf("%s",buf);
     return NULL;
   }
@@ -3512,7 +3512,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
 
   // Checks
   if (p_ssl_client->db == NULL) {
-    sprintf(buf, "dm_tofu_query_ptr_response: No DB connection\n");
+    sprintf(buf, "dm_worker_query_ptr: No DB connection\n");
     printf("%s",buf);
     rcode=LDNS_RCODE_SERVFAIL;
     goto return_response;
@@ -3520,26 +3520,26 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
 
   char *ipv6_client=p_ssl_client->client_addr;
   if ( (ipv6_client==NULL) || (strlen(ipv6_client)<2) ) {
-    printf ("dm_tofu_query_ptr_response: ipv6_client is NULL\n");
+    printf ("dm_worker_query_ptr: ipv6_client is NULL\n");
     rcode=LDNS_RCODE_SERVFAIL;
     goto return_response;
   }
   size_t q_count=ldns_rr_list_rr_count(ldns_pkt_question(query_pkt));
   if (q_count !=1) { // no question or too many questions
-    sprintf(buf, "dm_tofu_query_ptr_response: invalid number of questions, %zu.\n",q_count);
+    sprintf(buf, "dm_worker_query_ptr: invalid number of questions, %zu.\n",q_count);
     printf("%s",buf);
     rcode=LDNS_RCODE_FORMERR;
     goto return_response;
   }
 
   if (ldns_rr_get_class(query_question_rr)!=LDNS_RR_CLASS_IN ) { // not asking for Internet
-    sprintf(buf, "dm_tofu_query_ptr_response: Not asking for class INin \n");
+    sprintf(buf, "dm_worker_query_ptr: Not asking for class INin \n");
     printf("%s",buf);
     rcode=LDNS_RCODE_FORMERR;
     goto return_response;
   }
   if (ldns_rr_get_type(query_question_rr)!=LDNS_RR_TYPE_PTR) { // not asking for a pointer
-    sprintf(buf, "dm_tofu_query_ptr_response: Not asking for a PTR in \n");
+    sprintf(buf, "dm_worker_query_ptr: Not asking for a PTR in \n");
     printf("%s",buf);
     rcode=LDNS_RCODE_FORMERR;
     goto return_response;
@@ -3557,7 +3557,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
   int answer=0;
   int rc= dm_tofu_select_parent_dm(p_ssl_client->db,&ll_parent_head);
   if (rc<1) {
-    sprintf(buf, "dm_tofu_query_ptr_response: Couldn't find parent zones\n");
+    sprintf(buf, "dm_worker_query_ptr: Couldn't find parent zones\n");
     printf("%s",buf);
     rcode=LDNS_RCODE_SERVFAIL;
     goto return_response;
@@ -3578,7 +3578,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
         ldns_rdf *origin = NULL;
         child_rr_str[0]='\0';
         // TTL: MAY be used to indicate timeout available for TOFU to complete T2+T3
-        snprintf(child_rr_str, sizeof child_rr_str, "%s     %d    IN      PTR       %s", parent_name,DM_TOFU_T2+DM_TOFU_T3,child);
+        snprintf(child_rr_str, sizeof child_rr_str, "%s     %d    IN      PTR       %s", ll_parent_current->parent_name,DM_TOFU_T2+DM_TOFU_T3,child);
         l_status = ldns_rr_new_frm_str(&an_rr,child_rr_str,DM_TOFU_T2+DM_TOFU_T3,origin,&prev);
         if (prev!=NULL) {
           ldns_rdf_deep_free(prev);
@@ -3592,7 +3592,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
           // push the new an_rr onto the answer rr list
           ldns_rr_list_push_rr(response_an,an_rr);
         } else {
-          sprintf(buf, "dm_tofu_query_ptr_response: Couldn't create RR for %s.\n",child_rr_str);
+          sprintf(buf, "dm_worker_query_ptr: Couldn't create RR for %s.\n",child_rr_str);
           printf("%s",buf);
 	}
       }
@@ -3605,7 +3605,7 @@ ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_cli
   } // end while parent
 
   if ( (answer==0) ) { // couldn't offer anything = temporary failure 
-    sprintf(buf, "dm_tofu_query_ptr_response: Couldn't offer a zone.\n");
+    sprintf(buf, "dm_worker_query_ptr: Couldn't offer a zone.\n");
     printf("%s",buf);
     rcode=LDNS_RCODE_SERVFAIL;
     goto return_response;
