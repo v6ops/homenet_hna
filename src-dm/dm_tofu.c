@@ -462,7 +462,7 @@ char *offer_zone(MYSQL *db, char *parent_name, char *ipv6, time_t slot_time){
   char name[MYSQL_STRLEN]; // infra table
   char buf[MYSQL_STRLEN]; // length database name field
   memset(buf,'\0',sizeof(buf));
-  time_t start_slot,end_slot;
+  time_t start_slot,end_slot,start_valid;
   MYSQL_STMT *stmt;
   MYSQL_RES *result;
   MYSQL_BIND bind[3];
@@ -481,6 +481,10 @@ char *offer_zone(MYSQL *db, char *parent_name, char *ipv6, time_t slot_time){
 
   start_slot=(slot_time>0) ? slot_time : get_time_slot(0);
   end_slot=start_slot+60;
+  start_valid=start_slot-DM_TOFU_T1+2*60; // in this version allow old zones rather than deleting them after expiry of every slot
+  if (start_valid<0) { // some sytems have -ve time_t. Others don't.
+    start_valid=0;
+  }
   printf("Assigning zones at slot %lu\n",start_slot);
 
   if ( (ipv6==NULL) || (strlen(ipv6)<2) ) {
@@ -626,7 +630,8 @@ char *offer_zone(MYSQL *db, char *parent_name, char *ipv6, time_t slot_time){
   bind[0].length= &len1;
 
   bind[1].buffer_type= MYSQL_TYPE_LONGLONG;
-  bind[1].buffer= (char *)&start_slot;
+  // bind[1].buffer= (char *)&start_slot;
+  bind[1].buffer= (char *)&start_valid; // allow older zones
   bind[1].is_null= 0;
   bind[1].length= 0;
 
@@ -3458,14 +3463,170 @@ int dm_tofu_select_rr_status(MYSQL *db, int zone_id, char *rr_status, ll_rr_t **
   return rc;
 }
 
-// returns an offered zone from the pre-created list in packet format
- ldns_pkt * dm_tofu_query_ptr_response(ldns_pkt *query_pkt, char *parent_name, char *zone) { // parent_name is the owner. zone is the zone to be delegated
-//        TODO
-}
 
 // function called from dm_worker to process and inbound query PTR packet
+// a PTR Query is a solicit for a child domain from the HNA to the DM.
+// The reply from the DM is an offer and MAY contain zero, one, or more than one answers.
+//
+// The PTR query SHOULD contain exactly one question.
+// QTYPE MUST be PTR. QCLASS MUST be IN.
+// NAME field MAY be blank. DM is free to offer any child domain name.
+// NAME field MAY be a delegated IPv6 prefix as per RFC8501 2.3.3. in IP6.ARPA format (RFC3152)
+// Address MAY be used as a hint by the DM to assign a child domain name. Address to child domain name mapping MUST be sufficiently opaque to prevent guessing.
+// NAME field MAY be a parent. DM SHOULD use this as a hint to offer a child domain from this parent domain. Non-existent parent= name error/NXDOMAIN.
+// NAME field MAY be a FQDN of a child domain. DM SHOULD check whether this name is available for use by this HNA. Non-existent = Name error/NXDOMAIN. Not allowed for this HHA = REFUSED.
+//
 ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_client){ // 1st arg = packet, 2nd arg=SSL client (for cert)
-//        TODO
+  ldns_rr *query_question_rr=NULL;
+  ldns_pkt *response_pkt=NULL;
+  ldns_rr_list *response_qr=NULL;
+  ldns_rr_list *response_an=NULL;
+  char buf[160+MYSQL_STRLEN]={'\0'};
+  ldns_pkt_rcode rcode=LDNS_RCODE_NOERROR;
+  char query_name[MYSQL_STRLEN]={'\0'};
+  char parent_name[MYSQL_STRLEN]={'\0'};
+  char child_rr_str[80+MYSQL_STRLEN]={'\0'};
+      
+  // some sanity checking
+  if (!query_pkt) {
+    sprintf(buf, "Blank packet passed to dm_tofu_query_ptr_response\n");
+    printf("%s",buf);
+    return NULL;
+  }
+  sprintf(buf, "incoming PTR query\n");
+  printf("%s",buf);
+
+  // generate a blank response packet
+  response_pkt = ldns_pkt_new();
+  ldns_pkt_set_qr(response_pkt, 1); //response
+  ldns_pkt_set_aa(response_pkt, 1); //authoratative
+  ldns_pkt_set_id(response_pkt, ldns_pkt_id(query_pkt));
+
+  query_question_rr = ldns_rr_list_rr(ldns_pkt_question(query_pkt), 0); // get the first RR of the question
+  if (query_question_rr!=NULL) {
+    response_qr = ldns_rr_list_new();
+  //query_question_rr = ldns_rr_clone(ldns_rr_list_rr(ldns_pkt_question(query_pkt), 0)); // get the first RR of the question and clone it
+    ldns_rr_list_push_rr(response_qr, ldns_rr_clone(query_question_rr));
+    //printf("response_qr: %s\n",ldns_rr_list2str(response_qr));
+  }
+
+  // Checks
+  if (p_ssl_client->db == NULL) {
+    sprintf(buf, "dm_tofu_query_ptr_response: No DB connection\n");
+    printf("%s",buf);
+    rcode=LDNS_RCODE_SERVFAIL;
+    goto return_response;
+  }
+
+  char *ipv6_client=p_ssl_client->client_addr;
+  if ( (ipv6_client==NULL) || (strlen(ipv6_client)<2) ) {
+    printf ("dm_tofu_query_ptr_response: ipv6_client is NULL\n");
+    rcode=LDNS_RCODE_SERVFAIL;
+    goto return_response;
+  }
+  size_t q_count=ldns_rr_list_rr_count(ldns_pkt_question(query_pkt));
+  if (q_count !=1) { // no question or too many questions
+    sprintf(buf, "dm_tofu_query_ptr_response: invalid number of questions, %zu.\n",q_count);
+    printf("%s",buf);
+    rcode=LDNS_RCODE_FORMERR;
+    goto return_response;
+  }
+
+  if (ldns_rr_get_class(query_question_rr)!=LDNS_RR_CLASS_IN ) { // not asking for Internet
+    sprintf(buf, "dm_tofu_query_ptr_response: Not asking for class INin \n");
+    printf("%s",buf);
+    rcode=LDNS_RCODE_FORMERR;
+    goto return_response;
+  }
+  if (ldns_rr_get_type(query_question_rr)!=LDNS_RR_TYPE_PTR) { // not asking for a pointer
+    sprintf(buf, "dm_tofu_query_ptr_response: Not asking for a PTR in \n");
+    printf("%s",buf);
+    rcode=LDNS_RCODE_FORMERR;
+    goto return_response;
+  }
+  ldns_dname_2str(query_name, ldns_rr_owner(query_question_rr)); // get the NAME field from the query
+  sprintf(buf, "incoming PTR query for %s\n",query_name);
+  printf("%s",buf);
+
+  // get a list of parent zones where we are the DM
+  // we ignore the question for now (!)
+  // TODO add in ipv6 hints or parent name hints
+  ll_parent_t *ll_parent_head=NULL;
+  ll_parent_t *ll_parent_tmp=NULL;
+  ll_parent_t *ll_parent_current=NULL;
+  int answer=0;
+  int rc= dm_tofu_select_parent_dm(p_ssl_client->db,&ll_parent_head);
+  if (rc<1) {
+    sprintf(buf, "dm_tofu_query_ptr_response: Couldn't find parent zones\n");
+    printf("%s",buf);
+    rcode=LDNS_RCODE_SERVFAIL;
+    goto return_response;
+  }
+  // step through the parents
+  ll_parent_current=ll_parent_head;
+  char *child=NULL;
+  while (ll_parent_current != NULL) {
+    // attempt to offer a single zone per parent
+    child=offer_zone(p_ssl_client->db, ll_parent_current->parent_name, ipv6_client, 0);
+    if  (child !=NULL)  {
+      if ( strlen(child)>2) {
+        answer++; // we have found a child zone to offer
+        // create a new rr and push onto the answer
+        ldns_rr *an_rr=NULL;
+        ldns_rdf *prev=NULL;
+        ldns_status l_status;
+        ldns_rdf *origin = NULL;
+        child_rr_str[0]='\0';
+        // TTL: MAY be used to indicate timeout available for TOFU to complete T2+T3
+        snprintf(child_rr_str, sizeof child_rr_str, "%s     %d    IN      PTR       %s", parent_name,DM_TOFU_T2+DM_TOFU_T3,child);
+        l_status = ldns_rr_new_frm_str(&an_rr,child_rr_str,DM_TOFU_T2+DM_TOFU_T3,origin,&prev);
+        if (prev!=NULL) {
+          ldns_rdf_deep_free(prev);
+          prev=NULL;
+        }
+        if (LDNS_STATUS_OK==l_status) {
+          if (answer ==1) { // first answer so create the answer list
+            response_an = ldns_rr_list_new();
+            ldns_pkt_set_ancount(response_pkt,0);
+          }
+          // push the new an_rr onto the answer rr list
+          ldns_rr_list_push_rr(response_an,an_rr);
+        } else {
+          sprintf(buf, "dm_tofu_query_ptr_response: Couldn't create RR for %s.\n",child_rr_str);
+          printf("%s",buf);
+	}
+      }
+      free(child);
+    }
+    // get next parent
+    ll_parent_tmp=ll_parent_current->next;
+    free(ll_parent_current);
+    ll_parent_current=ll_parent_tmp;
+  } // end while parent
+
+  if ( (answer==0) ) { // couldn't offer anything = temporary failure 
+    sprintf(buf, "dm_tofu_query_ptr_response: Couldn't offer a zone.\n");
+    printf("%s",buf);
+    rcode=LDNS_RCODE_SERVFAIL;
+    goto return_response;
+  }
+
+   // set the response code and push the answer (if any) into the packet
+   return_response:
+   ldns_pkt_set_rcode(response_pkt,rcode);
+   if (response_an!=NULL) { // ldns_new_pkt also creates rr list storage so free, clone, free
+     ldns_rr_list_deep_free(response_pkt->_answer);
+     response_pkt->_answer = ldns_rr_list_clone(response_an);
+     ldns_pkt_set_ancount(response_pkt,ldns_rr_list_rr_count(response_an));
+     ldns_rr_list_deep_free(response_an);
+   }
+   if (response_qr!=NULL) {
+     ldns_rr_list_deep_free(response_pkt->_question);
+     response_pkt->_question = ldns_rr_list_clone(response_qr);
+     ldns_pkt_set_qdcount(response_pkt,ldns_rr_list_rr_count(response_qr));
+     ldns_rr_list_deep_free(response_qr);
+   }
+   return response_pkt; // note: no timestamp set yet (done in caller)
 }
 
 

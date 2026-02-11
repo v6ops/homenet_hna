@@ -56,3 +56,17 @@ src-dm/libevent_tofu
 src-dm/makezone
 src-dm/t.txt
 src-dm/tofu_test
+
+src-dm/.dirstamp
+src-dm/db
+src-dm/maketofutest.bash
+src-dm/testdb
+tests/config.log
+tests/main
+tests/main.log
+tests/main.trs
+tests/sample_test.log
+tests/sample_test.trs
+tests/testdata/reset_knot.bash.old
+
+

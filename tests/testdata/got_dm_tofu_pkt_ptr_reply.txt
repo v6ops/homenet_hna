@@ -1,0 +1,14 @@
+;; ->>HEADER<<- opcode: QUERY, rcode: SERVFAIL, id: 1
+;; flags: qr aa ; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 0 
+;; QUESTION SECTION:
+;; example.com.	3600	IN	PTR	\# 0
+
+;; ANSWER SECTION:
+
+;; AUTHORITY SECTION:
+
+;; ADDITIONAL SECTION:
+
+;; Query time: 0 msec
+;; WHEN: Thu Jan  1 00:00:00 1970
+;; MSG SIZE  rcvd: 0

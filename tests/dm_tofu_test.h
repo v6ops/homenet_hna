@@ -7,6 +7,8 @@
 #define DM_TOFU_TEST_H
 
 #include "../src-dm/dm_tofu.h"
+int endsWith(const char *str, const char *suffix);
+
 void dm_tofu_test(void);
 
 #endif

@@ -8,6 +8,20 @@
 
 #include <CUnit/CUnit.h>
 
+// string suffix comparison
+#include <stdio.h>
+#include <string.h>
+
+int endsWith(const char *str, const char *suffix) {
+    if (!str || !suffix) return 0;
+    size_t lenstr = strlen(str);
+    size_t lensuffix = strlen(suffix);
+    if (lensuffix > lenstr) return 0;
+
+    // Compare the end of str with suffix
+    return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
+}
+
 void dm_tofu_test(void) {
 
   MYSQL *db;
@@ -587,9 +601,14 @@ void dm_tofu_test(void) {
   //(7,'hna-jaguar.oak.guess.lord.example.com',NULL,NULL,'2001:3::1','creating',1020,'hna')
 
   // set up a minimal test ssl client struct
-  struct ssl_client test_ssl;
-  struct ssl_client *p_ssl_client=&test_ssl;
+  struct ssl_client *p_ssl_client;
+  if ((p_ssl_client = (struct ssl_client *) malloc(sizeof(*p_ssl_client))) == NULL) {
+    printf("failed to allocate memory for SSL client state\n");
+    exit(0);
+  }
+  memset(p_ssl_client, 0, sizeof(*p_ssl_client));
   p_ssl_client->db=db;
+  p_ssl_client->ssl=NULL;
 
 
   // check matching and ip
@@ -766,5 +785,73 @@ void dm_tofu_test(void) {
   // timeout TIME2 + T1 31*24*60*DM_TOFU_SLOT_LENGTH
   // timeout TIME2 + T4 366*24*60*DM_TOFU_SLOT_LENGTH
   //
+  //
+ 
+  ldns_pkt *input_pkt_ptr;
+
+
+  // ldns_pkt * dm_worker_query_ptr(ldns_pkt *query_pkt, struct ssl_client *p_ssl_client){ // 1st arg = packet, 2nd arg=SSL client (for cert)
+  printf("start PTR Query\n");
+  input_pkt_ptr=ldns_helpers_ptr_query("example.com.");
+  ldns_pkt_set_id(input_pkt_ptr, 1); // make the id predictable for testing
+  input_pkt_ptr->timestamp.tv_sec = 1763551210; // hard coded for testing to ease compare
+  input_pkt_ptr->timestamp.tv_usec = 0;
+  // first check the packet is as expected
+  FILE *fptr_ptr=fopen("./testdata/got_dm_tofu_pkt_ptr.txt","w");
+  CU_ASSERT(NULL!=fptr_ptr);
+  ldns_pkt_print(fptr_ptr,input_pkt_ptr);
+  fclose(fptr_ptr);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu_pkt_ptr.txt","./testdata/expected_dm_tofu_pkt_ptr.txt"));
+
+  ldns_pkt *output_pkt= NULL;
+
+  output_pkt= dm_worker_query_ptr(input_pkt_ptr, p_ssl_client); // 1st arg = packet, 2nd arg=SSL client (for cert)
+  //  check the reply packet is as expected. This one will fail because there are no zones available with this time stamp.
+  FILE *fptr_ptr2=fopen("./testdata/got_dm_tofu_pkt_ptr_reply.txt","w");
+  CU_ASSERT(NULL!=fptr_ptr2);
+  ldns_pkt_print(fptr_ptr2,output_pkt);
+  fclose(fptr_ptr2);
+  CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu_pkt_ptr_reply.txt","./testdata/expected_dm_tofu_pkt_ptr_reply.txt"));
+
+  if (output_pkt!=NULL) {
+    ldns_helpers_pkt_free(output_pkt);
+  }
+
+  // create one recent zone and move to created state
+  // shame here is that the time and zone name are unpredictable, because the function call doesn't allow overriding current time.
+  // may change that in future
+  time_t now=get_time_slot(0);
+  create_zones(db, "example.com", 1 ,now-180);
+  dm_tofu_creating_to_created(db, "example.com", now-180);
+  output_pkt= dm_worker_query_ptr(input_pkt_ptr, p_ssl_client); // 1st arg = packet, 2nd arg=SSL client (for cert)
+  //  check the reply packet is as expected. This one will succeed
+  fptr_ptr2=fopen("./testdata/got_dm_tofu_pkt_ptr_reply2.txt","w");
+  CU_ASSERT(NULL!=fptr_ptr2);
+  ldns_pkt_print(fptr_ptr2,output_pkt);
+  fclose(fptr_ptr2);
+
+  // this can never pass due to randomness of the time and name
+  // CU_ASSERT(0==cmp_file("./testdata/got_dm_tofu_pkt_ptr_reply2.txt","./testdata/expected_dm_tofu_pkt_ptr_reply2.txt"));
+  // check instead for reasonableness i.e. it ends with .example.com
+  char *offer_str=ldns_rr_list2str(ldns_pkt_answer(output_pkt)); // note \n included
+  if (offer_str!=NULL) {
+    printf("PTR Query Got an offer %s\n",offer_str);
+    CU_ASSERT(strlen(offer_str)>strlen(".example.com.\n"));
+    CU_ASSERT(1==endsWith(offer_str,".example.com.\n"));
+    free(offer_str);
+  } else {
+    printf("PTR Query Did not get an offer\n");
+    CU_ASSERT(1==0); // failed
+  }
+
+  if (input_pkt_ptr!=NULL) {
+    ldns_helpers_pkt_free(input_pkt_ptr);
+  }
+  if (output_pkt!=NULL) {
+    ldns_helpers_pkt_free(output_pkt);
+  }
+
+  the_end:
+  free(p_ssl_client);
   testdb_close(db);
 }
